@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GyroHRV - Analisi Autonomica GCG (Kubios Style)</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --pns: #38bdf8;
+      --sns: #f43f5e;
+      --accent: #10b981;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 12px; line-height: 1.4; }
+    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.5px; }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    button { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; transition: 0.15s; }
+    button.primary { background: var(--accent); color: #052e16; border-color: var(--accent); }
+    button.sim { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    button.stop { background: var(--sns); color: #fff; border-color: var(--sns); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .status-bar { display: flex; justify-content: space-between; background: var(--panel); padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; border: 1px solid var(--border); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+    .card h2 { font-size: 0.85rem; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 6px; display: flex; justify-content: space-between; }
+    canvas { width: 100%; height: 150px; background: #090d16; border-radius: 6px; display: block; }
+    .poincare-canvas { height: 220px; }
+    .metrics-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .metrics-table td { padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .metrics-table td:last-child { text-align: right; font-family: monospace; font-size: 0.95rem; font-weight: 600; }
+    .tag-pns { color: var(--pns); }
+    .tag-sns { color: var(--sns); }
+    .bar-wrap { margin: 10px 0; }
+    .bar-label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; }
+    .bar-track { height: 10px; background: #090d16; border-radius: 5px; overflow: hidden; position: relative; }
+    .bar-fill-pns { height: 100%; background: var(--pns); width: 50%; transition: width 0.3s; }
+    .bar-fill-sns { height: 100%; background: var(--sns); width: 50%; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>GyroHRV <span style="font-size:0.8rem;color:var(--muted);font-weight:400;">| Analisi Simpatico / Parasimpatico (GCG)</span></h1>
+  <div class="controls">
+    <button id="btnStartGyro" class="primary">Avvia Giroscopio</button>
+    <button id="btnStartSim" class="sim">Simulazione GCG</button>
+    <button id="btnStop" class="stop" disabled>Stop</button>
+    <button id="btnReset">Reset</button>
+    <button id="btnExport">Esporta RR (Kubios CSV)</button>
+  </div>
+</header>
+
+<div class="status-bar">
+  <span id="statusText">Stato: In attesa (Appoggiare il telefono sullo sterno da supini)</span>
+  <span id="sampleInfo">Battiti validi (NN): 0 | Durata: 00:00</span>
+</div>
+
+<div class="grid">
+  <!-- Tracciato Giroscopio Real-Time -->
+  <div class="card">
+    <h2>Segnale Girocardiografico (GCG Filtrato) <span id="instHR">-- BPM</span></h2>
+    <canvas id="gcgCanvas" width="600" height="150"></canvas>
+  </div>
+
+  <!-- Tacogramma RR -->
+  <div class="card">
+    <h2>Tacogramma Intervalli RR (ms) <span id="lastRR">-- ms</span></h2>
+    <canvas id="rrCanvas" width="600" height="150"></canvas>
+  </div>
+
+  <!-- Bilancio Autonomico Kubios -->
+  <div class="card">
+    <h2>Bilancio Sistema Nervoso Autonomo (ANS)</h2>
+    <div class="bar-wrap">
+      <div class="bar-label">
+        <span class="tag-pns">Tono Parasimpatico (PNS Index)</span>
+        <span id="pnsVal">0.00</span>
+      </div>
+      <div class="bar-track"><div id="pnsBar" class="bar-fill-pns"></div></div>
+    </div>
+    <div class="bar-wrap">
+      <div class="bar-label">
+        <span class="tag-sns">Tono Simpatico (SNS Index)</span>
+        <span id="snsVal">0.00</span>
+      </div>
+      <div class="bar-track"><div id="snsBar" class="bar-fill-sns"></div></div>
+    </div>
+    <table class="metrics-table" style="margin-top:12px;">
+      <tr><td>Stress Index di Baevsky (SI)</td><td id="mSI" class="tag-sns">--</td></tr>
+      <tr><td>Rapporto LF / HF</td><td id="mLFHF">--</td></tr>
+      <tr><td>Rapporto SD2 / SD1</td><td id="mSD21">--</td></tr>
+      <tr><td>Stato Autonomico Predominante</td><td id="mState">--</td></tr>
+    </table>
+  </div>
+
+  <!-- Dominio del Tempo -->
+  <div class="card">
+    <h2>Dominio del Tempo (Time-Domain)</h2>
+    <table class="metrics-table">
+      <tr><td>Mean RR (Intervallo medio)</td><td id="mMeanRR">-- ms</td></tr>
+      <tr><td>Mean HR (Frequenza media)</td><td id="mMeanHR">-- bpm</td></tr>
+      <tr><td>RMSSD <span class="tag-pns">[Parasimpatico]</span></td><td id="mRMSSD" class="tag-pns">-- ms</td></tr>
+      <tr><td>pNN50 <span class="tag-pns">[Parasimpatico]</span></td><td id="mPNN50" class="tag-pns">-- %</td></tr>
+      <tr><td>SDNN (Variabilità globale)</td><td id="mSDNN">-- ms</td></tr>
+    </table>
+  </div>
+
+  <!-- Dominio della Frequenza -->
+  <div class="card">
+    <h2>Dominio della Frequenza (Spettro FFT)</h2>
+    <canvas id="psdCanvas" width="600" height="110" style="height:110px;margin-bottom:8px;"></canvas>
+    <table class="metrics-table">
+      <tr><td>VLF (0.003–0.04 Hz)</td><td id="mVLF">-- ms²</td></tr>
+      <tr><td>LF (0.04–0.15 Hz) <span class="tag-sns">[Simpatico/Baro]</span></td><td id="mLF" class="tag-sns">-- ms² (-- %)</td></tr>
+      <tr><td>HF (0.15–0.40 Hz) <span class="tag-pns">[Parasimpatico]</span></td><td id="mHF" class="tag-pns">-- ms² (-- %)</td></tr>
+    </table>
+  </div>
+
+  <!-- Analisi Non-Lineare & Poincaré -->
+  <div class="card">
+    <h2>Poincaré Plot ($RR_n$ vs $RR_{n+1}$)</h2>
+    <canvas id="poincareCanvas" class="poincare-canvas" width="400" height="220"></canvas>
+    <table class="metrics-table" style="margin-top:6px;">
+      <tr><td>SD1 (Breve termine - <span class="tag-pns">PNS</span>)</td><td id="mSD1" class="tag-pns">-- ms</td></tr>
+      <tr><td>SD2 (Lungo termine - <span class="tag-sns">SNS+PNS</span>)</td><td id="mSD2">-- ms</td></tr>
+    </table>
+  </div>
+</div>
+
+<script>
+(() => {
+  // Stato dell'acquisizione
+  let isRunning = false;
+  let mode = null; // 'gyro' | 'sim'
+  let simTimer = null;
+  let startTime = 0;
+
+  // Buffer segnale GCG e intervalli RR
+  const gcgBuffer = [];
+  const MAX_GCG_POINTS = 300;
+  const rrIntervals = []; // in ms
+  const rrTimestamps = []; // in ms cumulativi
+
+  // Variabili filtro digitale e Peak Detection
+  let lpState = 0;
+  let hpState = 0;
+  let prevRaw = 0;
+  let envState = 0;
+  let adaptiveThreshold = 0.05;
+  let lastPeakTime = 0;
+  const REFRACTORY_MS = 380; // Max ~157 bpm per evitare doppi picchi S1/S2 (AO/AC)
+
+  // Riferimenti UI
+  const statusText = document.getElementById('statusText');
+  const sampleInfo = document.getElementById('sampleInfo');
+  const gcgCanvas = document.getElementById('gcgCanvas');
+  const rrCanvas = document.getElementById('rrCanvas');
+  const psdCanvas = document.getElementById('psdCanvas');
+  const poincareCanvas = document.getElementById('poincareCanvas');
+
+  // Filtro passa-banda IIR semplificato per enfatizzare l'impulso meccanico cardiaco (GCG)
+  function processGcgSample(gx, gy, gz, timestampMs) {
+    // Energia rotazionale planare (assi X e Y sono i più sensibili sullo sterno)
+    const magnitude = Math.sqrt(gx * gx + gy * gy + 0.3 * gz * gz);
+
+    // Filtro passa-alto (rimuove deriva posturale/respiratoria lenta)
+    hpState = 0.92 * (hpState + magnitude - prevRaw);
+    prevRaw = magnitude;
+
+    // Filtro passa-basso (smussa rumore ad alta frequenza)
+    lpState = lpState + 0.25 * (hpState - lpState);
+
+    // Energia dell'impulso (quadrato del segnale filtrato con inviluppo)
+    const energy = Math.abs(lpState);
+    envState = 0.85 * envState + 0.15 * energy;
+
+    gcgBuffer.push({ v: lpState, env: envState, peak: false });
+    if (gcgBuffer.length > MAX_GCG_POINTS) gcgBuffer.shift();
+
+    // Soglia adattiva esponenziale
+    adaptiveThreshold = 0.992 * adaptiveThreshold + 0.008 * (envState * 1.65);
+    const minThresh = 0.015;
+    const activeThresh = Math.max(adaptiveThreshold, minThresh);
+
+    // Rilevamento picco J / apertura aortica
+    if (envState > activeThresh && (timestampMs - lastPeakTime) > REFRACTORY_MS) {
+      if (lastPeakTime > 0) {
+        const rr = timestampMs - lastPeakTime;
+        // Validazione fisiologica (40 - 150 BPM -> 400 - 1500 ms)
+        if (rr >= 400 && rr <= 1500) {
+          // Filtro artefatti Kubios-like: scarta variazioni > 25% rispetto alla mediana recente
+          if (rrIntervals.length >= 4) {
+            const recent = rrIntervals.slice(-5).sort((a, b) => a - b);
+            const med = recent[Math.floor(recent.length / 2)];
+            if (Math.abs(rr - med) / med < 0.25) {
+              registerRR(rr);
+            }
+          } else {
+            registerRR(rr);
+          }
+        }
+      }
+      lastPeakTime = timestampMs;
+      adaptiveThreshold = envState * 1.35; // Innalza soglia dopo il picco
+      gcgBuffer[gcgBuffer.length - 1].peak = true;
+    }
+
+    drawGCG();
+  }
+
+  function registerRR(rrMs) {
+    const cleanRR = Math.round(rrMs);
+    rrIntervals.push(cleanRR);
+    const prevT = rrTimestamps.length > 0 ? rrTimestamps[rrTimestamps.length - 1] : 0;
+    rrTimestamps.push(prevT + cleanRR);
+
+    const instBpm = Math.round(60000 / cleanRR);
+    document.getElementById('instHR').textContent = `${instBpm} BPM`;
+    document.getElementById('lastRR').textContent = `${cleanRR} ms`;
+
+    const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+    const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+    const ss = String(elapsedSec % 60).padStart(2, '0');
+    sampleInfo.textContent = `Battiti validi (NN): ${rrIntervals.length} | Durata: ${mm}:${ss}`;
+
+    drawRR();
+    if (rrIntervals.length >= 6) {
+      computeHRVMetrics();
+    }
+  }
+
+  // Calcolo completo delle metriche Kubios
+  function computeHRVMetrics() {
+    const N = rrIntervals.length;
+    const meanRR = rrIntervals.reduce((a, b) => a + b, 0) / N;
+    const meanHR = 60000 / meanRR;
+
+    // Differenze successive e SDNN
+    let sumSqDiff = 0;
+    let nn50 = 0;
+    let sumSqDev = 0;
+    const diffs = [];
+
+    for (let i = 0; i < N; i++) {
+      sumSqDev += Math.pow(rrIntervals[i] - meanRR, 2);
+      if (i < N - 1) {
+        const d = rrIntervals[i + 1] - rrIntervals[i];
+        diffs.push(d);
+        sumSqDiff += d * d;
+        if (Math.abs(d) > 50) nn50++;
+      }
+    }
+
+    const sdnn = Math.sqrt(sumSqDev / (N - 1));
+    const rmssd = Math.sqrt(sumSqDiff / (N - 1));
+    const pnn50 = (nn50 / (N - 1)) * 100;
+
+    // Non-Lineare: Poincaré SD1 e SD2
+    const meanDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+    const varDiff = diffs.reduce((a, b) => a + Math.pow(b - meanDiff, 2), 0) / (diffs.length - 1 || 1);
+    const sd1 = Math.sqrt(0.5 * varDiff);
+    const sd2Sq = 2 * sdnn * sdnn - 0.5 * varDiff;
+    const sd2 = Math.sqrt(Math.max(sd2Sq, 0.1));
+    const sd21 = sd2 / (sd1 || 1);
+
+    // Baevsky's Stress Index (SI)
+    // Bin di 50 ms per trovare la Moda (Mo) e l'ampiezza della Moda (AMo %)
+    const sorted = [...rrIntervals].sort((a, b) => a - b);
+    const minRR = sorted[0];
+    const maxRR = sorted[sorted.length - 1];
+    const mxDMn = Math.max((maxRR - minRR) / 1000, 0.05); // in secondi
+
+    const bins = {};
+    let maxBinCount = 0;
+    let modeBin = meanRR;
+    for (const val of rrIntervals) {
+      const b = Math.round(val / 50) * 50;
+      bins[b] = (bins[b] || 0) + 1;
+      if (bins[b] > maxBinCount) {
+        maxBinCount = bins[b];
+        modeBin = b;
+      }
+    }
+    const AMo = (maxBinCount / N) * 100; // in percentuale
+    const MoSec = modeBin / 1000;
+    const stressIndex = AMo / (2 * MoSec * mxDMn);
+
+    // Indici sintetici PNS e SNS (normalizzati rispetto ai valori medi a riposo: MeanRR=926ms, RMSSD=42ms, SD1=29ms, SI=100)
+    const zRR = (meanRR - 926) / 90;
+    const zRMSSD = (rmssd - 42) / 15;
+    const zSD1 = (sd1 - 29) / 12;
+    const pnsIndex = (zRR + zRMSSD + zSD1) / 3;
+
+    const zHR = (meanHR - 66) / 8;
+    const zSI = (stressIndex - 100) / 50;
+    const zSD2 = (50 - sd2) / 18;
+    const snsIndex = (zHR + zSI + zSD2) / 3;
+
+    // Aggiornamento UI Dominio del Tempo e Non-Lineare
+    document.getElementById('mMeanRR').textContent = `${meanRR.toFixed(1)} ms`;
+    document.getElementById('mMeanHR').textContent = `${meanHR.toFixed(1)} bpm`;
+    document.getElementById('mRMSSD').textContent = `${rmssd.toFixed(1)} ms`;
+    document.getElementById('mPNN50').textContent = `${pnn50.toFixed(1)} %`;
+    document.getElementById('mSDNN').textContent = `${sdnn.toFixed(1)} ms`;
+    document.getElementById('mSD1').textContent = `${sd1.toFixed(1)} ms`;
+    document.getElementById('mSD2').textContent = `${sd2.toFixed(1)} ms`;
+    document.getElementById('mSD21').textContent = sd21.toFixed(2);
+    document.getElementById('mSI').textContent = stressIndex.toFixed(1);
+
+    // Barre PNS e SNS (scala da -3 a +3 mappata su 5% - 95%)
+    document.getElementById('pnsVal').textContent = (pnsIndex >= 0 ? '+' : '') + pnsIndex.toFixed(2);
+    document.getElementById('snsVal').textContent = (snsIndex >= 0 ? '+' : '') + snsIndex.toFixed(2);
+    const pnsPct = Math.min(95, Math.max(5, 50 + pnsIndex * 18));
+    const snsPct = Math.min(95, Math.max(5, 50 + snsIndex * 18));
+    document.getElementById('pnsBar').style.width = `${pnsPct}%`;
+    document.getElementById('snsBar').style.width = `${snsPct}%`;
+
+    const stateEl = document.getElementById('mState');
+    if (pnsIndex - snsIndex > 0.4) {
+      stateEl.textContent = 'Dominanza Parasimpatica (Recupero/Vagale)';
+      stateEl.className = 'tag-pns';
+    } else if (snsIndex - pnsIndex > 0.4) {
+      stateEl.textContent = 'Dominanza Simpatica (Stress/Attivazione)';
+      stateEl.className = 'tag-sns';
+    } else {
+      stateEl.textContent = 'Equilibrio Simpatovagale';
+      stateEl.className = '';
+    }
+
+    drawPoincare(meanRR, sd1, sd2);
+
+    // Dominio della Frequenza (richiede almeno ~20 secondi di dati per stima spettrale)
+    if (rrTimestamps[rrTimestamps.length - 1] >= 15000) {
+      computeFrequencyDomain();
+    }
+  }
+
+  // Ricampionamento a 4 Hz + Finestra di Hann + DFT per bande VLF, LF, HF
+  function computeFrequencyDomain() {
+    const fs = 4; // 4 Hz standard Kubios
+    const stepMs = 1000 / fs;
+    const totalDuration = rrTimestamps[rrTimestamps.length - 1];
+    const startT = rrTimestamps[0];
+
+    const resampled = [];
+    let idx = 0;
+    for (let t = startT; t <= totalDuration; t += stepMs) {
+      while (idx < rrTimestamps.length - 2 && rrTimestamps[idx + 1] < t) {
+        idx++;
+      }
+      const t0 = rrTimestamps[idx];
+      const t1 = rrTimestamps[idx + 1];
+      const v0 = rrIntervals[idx];
+      const v1 = rrIntervals[idx + 1];
+      const frac = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+      resampled.push(v0 + frac * (v1 - v0));
+    }
+
+    const M = resampled.length;
+    if (M < 32) return;
+
+    // Rimozione media (detrending) e applicazione finestra di Hann
+    const mean = resampled.reduce((a, b) => a + b, 0) / M;
+    const windowed = new Float64Array(M);
+    let winPower = 0;
+    for (let n = 0; n < M; n++) {
+      const w = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (M - 1)));
+      windowed[n] = (resampled[n] - mean) * w;
+      winPower += w * w;
+    }
+
+    // Calcolo PSD tramite DFT sulle frequenze di interesse (0.003 - 0.45 Hz)
+    const df = fs / M;
+    let vlf = 0, lf = 0, hf = 0;
+    const spectrum = [];
+
+    for (let k = 1; k < M / 2; k++) {
+      const f = k * df;
+      if (f > 0.45) break;
+      let re = 0, im = 0;
+      for (let n = 0; n < M; n++) {
+        const angle = (2 * Math.PI * k * n) / M;
+        re += windowed[n] * Math.cos(angle);
+        im -= windowed[n] * Math.sin(angle);
+      }
+      const psd = (2 * (re * re + im * im)) / (fs * winPower);
+      const power = psd * df;
+      spectrum.push({ f, psd });
+
+      if (f >= 0.003 && f < 0.04) vlf += power;
+      else if (f >= 0.04 && f < 0.15) lf += power;
+      else if (f >= 0.15 && f <= 0.40) hf += power;
+    }
+
+    const totalLFHF = lf + hf || 1;
+    const lfPct = (lf / totalLFHF) * 100;
+    const hfPct = (hf / totalLFHF) * 100;
+    const lfhfRatio = lf / (hf || 0.001);
+
+    document.getElementById('mVLF').textContent = `${vlf.toFixed(0)} ms²`;
+    document.getElementById('mLF').textContent = `${lf.toFixed(0)} ms² (${lfPct.toFixed(1)}%)`;
+    document.getElementById('mHF').textContent = `${hf.toFixed(0)} ms² (${hfPct.toFixed(1)}%)`;
+    document.getElementById('mLFHF').textContent = lfhfRatio.toFixed(2);
+
+    drawPSD(spectrum);
+  }
+
+  // Funzioni grafiche Canvas
+  function drawGCG() {
+    const ctx = gcgCanvas.getContext('2d');
+    const w = gcgCanvas.width, h = gcgCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (gcgBuffer.length < 2) return;
+    let maxVal = 0.05;
+    for (const p of gcgBuffer) {
+      if (Math.abs(p.v) > maxVal) maxVal = Math.abs(p.v);
+    }
+
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    gcgBuffer.forEach((p, i) => {
+      const x = (i / (MAX_GCG_POINTS - 1)) * w;
+      const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // Disegna marker sui picchi rilevati
+    ctx.fillStyle = '#f43f5e';
+    gcgBuffer.forEach((p, i) => {
+      if (p.peak) {
+        const x = (i / (MAX_GCG_POINTS - 1)) * w;
+        const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  }
+
+  function drawRR() {
+    const ctx = rrCanvas.getContext('2d');
+    const w = rrCanvas.width, h = rrCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const view = rrIntervals.slice(-60);
+    if (view.length < 2) return;
+
+    const min = Math.min(...view) - 30;
+    const max = Math.max(...view) + 30;
+    const range = Math.max(max - min, 100);
+
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    view.forEach((val, i) => {
+      const x = (i / (view.length - 1)) * (w - 20) + 10;
+      const y = h - 15 - ((val - min) / range) * (h - 30);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function drawPSD(spectrum) {
+    const ctx = psdCanvas.getContext('2d');
+    const w = psdCanvas.width, h = psdCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+    if (spectrum.length < 2) return;
+
+    const maxPsd = Math.max(...spectrum.map(s => s.psd), 1);
+
+    spectrum.forEach((s, i) => {
+      if (i === 0) return;
+      const x0 = (spectrum[i - 1].f / 0.45) * w;
+      const x1 = (s.f / 0.45) * w;
+      const y0 = h - (spectrum[i - 1].psd / maxPsd) * (h - 15);
+      const y1 = h - (s.psd / maxPsd) * (h - 15);
+
+      ctx.fillStyle = s.f < 0.04 ? '#64748b' : (s.f < 0.15 ? 'rgba(244,63,94,0.45)' : 'rgba(56,189,248,0.45)');
+      ctx.beginPath();
+      ctx.moveTo(x0, h);
+      ctx.lineTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x1, h);
+      ctx.closePath();
+ 
