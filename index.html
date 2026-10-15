@@ -137,7 +137,7 @@
 <script>
 (() => {
   let isRunning = false;
-  let mode = null; // 'gyro' | 'sim'
+  let mode = null;
   let simTimer = null;
   let startTime = 0;
   let isStabilizing = false;
@@ -162,6 +162,27 @@
   const rrCanvas = document.getElementById('rrCanvas');
   const psdCanvas = document.getElementById('psdCanvas');
   const poincareCanvas = document.getElementById('poincareCanvas');
+
+  // Generatore di beep acustico tramite Web Audio API
+  function playBeep(frequency = 440, duration = 200) {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration / 1000);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration / 1000);
+    } catch (e) {
+      console.log('Audio non consentito dal browser', e);
+    }
+  }
 
   function processGcgSample(gx, gy, gz, timestampMs) {
     const magnitude = Math.sqrt(gx * gx + gy * gy + 0.3 * gz * gz);
@@ -555,6 +576,7 @@
         clearInterval(stabilizationTimer);
         isStabilizing = false;
         startTime = Date.now();
+        playBeep(880, 400); // Beep acuto di inizio rilevazione effettiva
         statusText.textContent = 'Acquisizione Giroscopio attiva — Rilasciare il corpo e mantenere la posizione.';
       }
     }, 1000);
@@ -568,6 +590,7 @@
     mode = 'sim';
     startTime = Date.now();
     statusText.textContent = 'Simulazione GCG attiva.';
+    playBeep(880, 400);
     updateButtons();
 
     let simTime = 0;
@@ -596,6 +619,7 @@
     if (stabilizationTimer) clearInterval(stabilizationTimer);
     window.removeEventListener('devicemotion', handleMotion, true);
     if (simTimer) clearInterval(simTimer);
+    playBeep(440, 600); // Beep grave di fine acquisizione
     statusText.textContent = 'Acquisizione terminata.';
     updateButtons();
   }
@@ -639,7 +663,7 @@
   document.getElementById('btnStartSim').addEventListener('click', startSimulation);
   document.getElementById('btnStop').addEventListener('click', stopAcquisition);
   document.getElementById('btnReset').addEventListener('click', resetSession);
-  document.getElementById('btnExport').addEventListener('click', exportCSV);
+  document.getElementById('btnExport').addEventListener('click5', exportCSV);
 })();
 </script>
 </body>
