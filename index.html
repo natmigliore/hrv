@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>GyroHRV - Analisi Autonomica GCG (Kubios Style)</title>
+  <title>GyroSCG HRV - Analisi Meccanica Cardiaca</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -14,7 +14,6 @@
       --pns: #38bdf8;
       --sns: #f43f5e;
       --accent: #10b981;
-      --warn: #f59e0b;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
     body { background: var(--bg); color: var(--text); padding: 12px; line-height: 1.4; }
@@ -50,15 +49,15 @@
 <body>
 
 <header>
-  <h1>GyroHRV <span style="font-size:0.8rem;color:var(--muted);font-weight:400;">| Analisi Simpatico / Parasimpatico (GCG)</span></h1>
+  <h1>GyroSCG HRV <span style="font-size:0.8rem;color:var(--muted);font-weight:400;">| Fusione GCG+SCG</span></h1>
   <div class="controls">
     <div class="duration-selector">
       <button id="btnDurManual" class="active" onclick="setDuration('manual')">Manuale</button>
       <button id="btnDur3" onclick="setDuration(3)">3 Min</button>
       <button id="btnDur5" onclick="setDuration(5)">5 Min</button>
     </div>
-    <button id="btnStartGyro" class="primary">Avvia Giroscopio</button>
-    <button id="btnStartSim" class="sim">Simulazione GCG</button>
+    <button id="btnStartSensors" class="primary">Avvia Sensori</button>
+    <button id="btnStartSim" class="sim">Simulazione</button>
     <button id="btnStop" class="stop" disabled>Stop</button>
     <button id="btnReset">Reset</button>
     <button id="btnExport">Esporta CSV</button>
@@ -72,7 +71,7 @@
 
 <div class="grid">
   <div class="card">
-    <h2>Segnale Girocardiografico (GCG Filtrato) <span id="instHR">-- BPM</span></h2>
+    <h2>Segnale Meccanico Combinato (SCG+GCG) <span id="instHR">-- BPM</span></h2>
     <canvas id="gcgCanvas" width="600" height="150"></canvas>
   </div>
 
@@ -162,18 +161,17 @@
     let silentAudioCtx = null;
     let silentOsc = null;
 
-    const gcgBuffer = [];
-    const MAX_GCG_POINTS = 300;
+    const sensorBuffer = [];
+    const MAX_POINTS = 300;
     const rrIntervals = [];
     const rrTimestamps = [];
 
-    let lpState = 0;
-    let hpState = 0;
-    let prevRaw = 0;
+    let filteredSignal = 0;
+    let prevSample = 0;
     let envState = 0;
-    let adaptiveThreshold = 0.05;
+    let adaptiveThreshold = 0.03;
     let lastPeakTime = 0;
-    const REFRACTORY_MS = 380;
+    const REFRACTORY_MS = 400; // Limite massimo ~150 bpm per evitare doppi picchi valvolari
 
     const statusText = document.getElementById('statusText');
     const sampleInfo = document.getElementById('sampleInfo');
@@ -182,44 +180,26 @@
     const psdCanvas = document.getElementById('psdCanvas');
     const poincareCanvas = document.getElementById('poincareCanvas');
 
-    // Mantiene attivo lo schermo via Wake Lock e flusso audio in background (evita blocco sensore di prossimità)
     async function preventSleepOn() {
       if ('wakeLock' in navigator) {
-        try {
-          wakeLock = await navigator.wakeLock.request('screen');
-        } catch (err) {
-          console.log('Wake Lock non disponibile', err);
-        }
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
       }
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         silentAudioCtx = new AudioContext();
         silentOsc = silentAudioCtx.createOscillator();
         const gain = silentAudioCtx.createGain();
-        gain.gain.value = 0.00001; // Volume impercettibile (quasi zero)
+        gain.gain.value = 0.00001;
         silentOsc.connect(gain);
         gain.connect(silentAudioCtx.destination);
         silentOsc.start();
-      } catch (e) {
-        console.log('Audio preventivo non avviato', e);
-      }
+      } catch (e) {}
     }
 
     async function preventSleepOff() {
-      if (wakeLock !== null) {
-        try {
-          await wakeLock.release();
-          wakeLock = null;
-        } catch (e) {}
-      }
-      if (silentOsc) {
-        try { silentOsc.stop(); } catch (e) {}
-        silentOsc = null;
-      }
-      if (silentAudioCtx) {
-        try { silentAudioCtx.close(); } catch (e) {}
-        silentAudioCtx = null;
-      }
+      if (wakeLock !== null) { try { await wakeLock.release(); wakeLock = null; } catch (e) {} }
+      if (silentOsc) { try { silentOsc.stop(); } catch (e) {} silentOsc = null; }
+      if (silentAudioCtx) { try { silentAudioCtx.close(); } catch (e) {} silentAudioCtx = null; }
     }
 
     function playBeep(frequency = 440, duration = 200) {
@@ -240,22 +220,30 @@
       } catch (e) {}
     }
 
-    function processGcgSample(gx, gy, gz, timestampMs) {
-      const magnitude = Math.sqrt(gx * gx + gy * gy + 0.3 * gz * gz);
-      hpState = 0.92 * (hpState + magnitude - prevRaw);
-      prevRaw = magnitude;
-      lpState = lpState + 0.25 * (hpState - lpState);
+    // Fusione Sensoriale: Accelerometro (SCG) + Giroscopio (GCG)
+    function processFusedSample(ax, ay, az, gx, gy, gz, timestampMs) {
+      // Accelerazione lineare verticale sullo sterno (asse Z o Y principale) + Giroscopio planare
+      const scgEnergy = Math.sqrt(ax * ax + ay * ay + az * az);
+      const gcgEnergy = Math.sqrt(gx * gx + gy * gy + 0.5 * gz * gz);
+      
+      // Combinazione pesata per isolare l'impatto meccanico cardiaco ed eliminare il rumore
+      const combined = 0.6 * scgEnergy + 0.4 * gcgEnergy;
 
-      const energy = Math.abs(lpState);
-      envState = 0.85 * envState + 0.15 * energy;
+      // Filtro passa-banda digitale adattivo
+      filteredSignal = 0.85 * (filteredSignal + combined - prevSample);
+      prevSample = combined;
 
-      gcgBuffer.push({ v: lpState, env: envState, peak: false });
-      if (gcgBuffer.length > MAX_GCG_POINTS) gcgBuffer.shift();
+      const energy = Math.abs(filteredSignal);
+      envState = 0.80 * envState + 0.20 * energy;
 
-      adaptiveThreshold = 0.992 * adaptiveThreshold + 0.008 * (envState * 1.65);
-      const minThresh = 0.015;
+      sensorBuffer.push({ v: filteredSignal, peak: false });
+      if (sensorBuffer.length > MAX_POINTS) sensorBuffer.shift();
+
+      adaptiveThreshold = 0.990 * adaptiveThreshold + 0.010 * (envState * 1.5);
+      const minThresh = 0.008;
       const activeThresh = Math.max(adaptiveThreshold, minThresh);
 
+      // Rilevamento picco validato
       if (envState > activeThresh && (timestampMs - lastPeakTime) > REFRACTORY_MS) {
         if (lastPeakTime > 0) {
           const rr = timestampMs - lastPeakTime;
@@ -272,11 +260,11 @@
           }
         }
         lastPeakTime = timestampMs;
-        adaptiveThreshold = envState * 1.35;
-        gcgBuffer[gcgBuffer.length - 1].peak = true;
+        adaptiveThreshold = envState * 1.3;
+        sensorBuffer[sensorBuffer.length - 1].peak = true;
       }
 
-      drawGCG();
+      drawSignal();
     }
 
     function registerRR(rrMs) {
@@ -462,22 +450,22 @@
       drawPSD(spectrum);
     }
 
-    function drawGCG() {
+    function drawSignal() {
       const ctx = gcgCanvas.getContext('2d');
       const w = gcgCanvas.width, h = gcgCanvas.height;
       ctx.clearRect(0, 0, w, h);
 
-      if (gcgBuffer.length < 2) return;
+      if (sensorBuffer.length < 2) return;
       let maxVal = 0.05;
-      for (const p of gcgBuffer) {
+      for (const p of sensorBuffer) {
         if (Math.abs(p.v) > maxVal) maxVal = Math.abs(p.v);
       }
 
       ctx.strokeStyle = '#38bdf8';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
-      gcgBuffer.forEach((p, i) => {
-        const x = (i / (MAX_GCG_POINTS - 1)) * w;
+      sensorBuffer.forEach((p, i) => {
+        const x = (i / (MAX_POINTS - 1)) * w;
         const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
@@ -485,9 +473,9 @@
       ctx.stroke();
 
       ctx.fillStyle = '#f43f5e';
-      gcgBuffer.forEach((p, i) => {
+      sensorBuffer.forEach((p, i) => {
         if (p.peak) {
-          const x = (i / (MAX_GCG_POINTS - 1)) * w;
+          const x = (i / (MAX_POINTS - 1)) * w;
           const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
           ctx.beginPath();
           ctx.arc(x, y, 4, 0, Math.PI * 2);
@@ -593,20 +581,36 @@
       ctx.restore();
     }
 
+    let lastAcc = { x: 0, y: 0, z: 0 };
+    let lastGyro = { alpha: 0, beta: 0, gamma: 0 };
+
     function handleMotion(event) {
-      if (!isRunning || mode !== 'gyro') return;
+      if (!isRunning || mode !== 'sensors') return;
       if (isStabilizing) return;
+
+      const acc = event.acceleration || event.accelerationIncludingGravity;
       const rot = event.rotationRate;
-      if (!rot) return;
-      processGcgSample(rot.alpha || 0, rot.beta || 0, rot.gamma || 0, performance.now());
+
+      if (acc) {
+        lastAcc.x = acc.x || 0;
+        lastAcc.y = acc.y || 0;
+        lastAcc.z = acc.z || 0;
+      }
+      if (rot) {
+        lastGyro.alpha = rot.alpha || 0;
+        lastGyro.beta = rot.beta || 0;
+        lastGyro.gamma = rot.gamma || 0;
+      }
+
+      processFusedSample(lastAcc.x, lastAcc.y, lastAcc.z, lastGyro.alpha, lastGyro.beta, lastGyro.gamma, performance.now());
     }
 
-    async function startGyro() {
+    async function startSensors() {
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
         try {
           const perm = await DeviceMotionEvent.requestPermission();
           if (perm !== 'granted') {
-            statusText.textContent = 'Errore: Permesso giroscopio negato.';
+            statusText.textContent = 'Errore: Permesso sensori negato.';
             return;
           }
         } catch (err) {
@@ -617,7 +621,7 @@
 
       resetSession();
       isRunning = true;
-      mode = 'gyro';
+      mode = 'sensors';
       isStabilizing = true;
 
       await preventSleepOn();
@@ -635,7 +639,7 @@
           isStabilizing = false;
           startTime = Date.now();
           playBeep(880, 400);
-          statusText.textContent = 'Acquisizione in corso...';
+          statusText.textContent = 'Acquisizione SCG+GCG in corso...';
 
           if (selectedDurationMinutes !== 'manual') {
             const durationMs = selectedDurationMinutes * 60 * 1000;
@@ -655,7 +659,7 @@
       isRunning = true;
       mode = 'sim';
       startTime = Date.now();
-      statusText.textContent = 'Simulazione GCG attiva.';
+      statusText.textContent = 'Simulazione SCG+GCG attiva.';
       playBeep(880, 400);
       updateButtons();
 
@@ -674,18 +678,20 @@
       simTimer = setInterval(() => {
         simTime += 20;
         const tSec = simTime / 1000;
-        let gx = (Math.random() - 0.5) * 0.04;
-        let gy = (Math.random() - 0.5) * 0.04;
+        let ax = (Math.random() - 0.5) * 0.02;
+        let ay = (Math.random() - 0.5) * 0.02;
+        let az = (Math.random() - 0.5) * 0.02;
 
         if (simTime >= nextBeatTime) {
-          gx += 1.4;
-          gy += 1.1;
+          ax += 1.2;
+          ay += 1.0;
+          az += 1.5;
           const hfMod = 48 * Math.sin(2 * Math.PI * 0.25 * tSec);
           const lfMod = 32 * Math.sin(2 * Math.PI * 0.10 * tSec);
           const nextRR = 860 + hfMod + lfMod + (Math.random() - 0.5) * 14;
           nextBeatTime = simTime + nextRR;
         }
-        processGcgSample(gx, gy, 0.02, simTime);
+        processFusedSample(ax, ay, az, 1.2, 1.0, 0.2, simTime);
       }, 20);
     }
 
@@ -709,7 +715,7 @@
 
     function resetSession() {
       stopAcquisition();
-      gcgBuffer.length = 0;
+      sensorBuffer.length = 0;
       rrIntervals.length = 0;
       rrTimestamps.length = 0;
       lastPeakTime = 0;
@@ -731,18 +737,18 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `gyro_rr_kubios_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+      a.download = `scg_gcg_rr_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     }
 
     function updateButtons() {
-      document.getElementById('btnStartGyro').disabled = isRunning;
+      document.getElementById('btnStartSensors').disabled = isRunning;
       document.getElementById('btnStartSim').disabled = isRunning;
       document.getElementById('btnStop').disabled = !isRunning;
     }
 
-    document.getElementById('btnStartGyro').addEventListener('click', startGyro);
+    document.getElementById('btnStartSensors').addEventListener('click', startSensors);
     document.getElementById('btnStartSim').addEventListener('click', startSimulation);
     document.getElementById('btnStop').addEventListener('click', stopAcquisition);
     document.getElementById('btnReset').addEventListener('click', resetSession);
