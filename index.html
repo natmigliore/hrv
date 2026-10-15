@@ -158,7 +158,9 @@
     let isStabilizing = false;
     let stabilizationTimer = null;
     let recordingTimer = null;
-    let wakeLock = null; // Riferimento per il blocco dello standby
+    let wakeLock = null;
+    let silentAudioCtx = null;
+    let silentOsc = null;
 
     const gcgBuffer = [];
     const MAX_GCG_POINTS = 300;
@@ -180,26 +182,43 @@
     const psdCanvas = document.getElementById('psdCanvas');
     const poincareCanvas = document.getElementById('poincareCanvas');
 
-    // Attiva il Wake Lock per impedire lo standby dello schermo
-    async function requestWakeLock() {
+    // Mantiene attivo lo schermo via Wake Lock e flusso audio in background (evita blocco sensore di prossimità)
+    async function preventSleepOn() {
       if ('wakeLock' in navigator) {
         try {
           wakeLock = await navigator.wakeLock.request('screen');
         } catch (err) {
-          console.log('Wake Lock non riuscito:', err);
+          console.log('Wake Lock non disponibile', err);
         }
+      }
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        silentAudioCtx = new AudioContext();
+        silentOsc = silentAudioCtx.createOscillator();
+        const gain = silentAudioCtx.createGain();
+        gain.gain.value = 0.00001; // Volume impercettibile (quasi zero)
+        silentOsc.connect(gain);
+        gain.connect(silentAudioCtx.destination);
+        silentOsc.start();
+      } catch (e) {
+        console.log('Audio preventivo non avviato', e);
       }
     }
 
-    // Rilascia il Wake Lock
-    async function releaseWakeLock() {
+    async function preventSleepOff() {
       if (wakeLock !== null) {
         try {
           await wakeLock.release();
           wakeLock = null;
-        } catch (err) {
-          console.log('Rilascio Wake Lock fallito:', err);
-        }
+        } catch (e) {}
+      }
+      if (silentOsc) {
+        try { silentOsc.stop(); } catch (e) {}
+        silentOsc = null;
+      }
+      if (silentAudioCtx) {
+        try { silentAudioCtx.close(); } catch (e) {}
+        silentAudioCtx = null;
       }
     }
 
@@ -218,9 +237,7 @@
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + duration / 1000);
-      } catch (e) {
-        console.log('Audio non consentito', e);
-      }
+      } catch (e) {}
     }
 
     function processGcgSample(gx, gy, gz, timestampMs) {
@@ -603,8 +620,7 @@
       mode = 'gyro';
       isStabilizing = true;
 
-      // Richiede il blocco dello standby dello schermo
-      await requestWakeLock();
+      await preventSleepOn();
 
       let countdown = 60;
       statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
@@ -643,7 +659,7 @@
       playBeep(880, 400);
       updateButtons();
 
-      await requestWakeLock();
+      await preventSleepOn();
 
       if (selectedDurationMinutes !== 'manual') {
         const durationMs = selectedDurationMinutes * 60 * 1000;
@@ -682,8 +698,7 @@
       window.removeEventListener('devicemotion', handleMotion, true);
       if (simTimer) clearInterval(simTimer);
       
-      // Rilascia il blocco dello schermo per permettere il normale risparmio energetico
-      releaseWakeLock();
+      preventSleepOff();
 
       playBeep(440, 600);
       if (!statusText.textContent.includes('completata')) {
