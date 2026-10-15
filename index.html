@@ -20,12 +20,15 @@
     body { background: var(--bg); color: var(--text); padding: 12px; line-height: 1.4; }
     header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
     h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.5px; }
-    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     button { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; transition: 0.15s; }
     button.primary { background: var(--accent); color: #052e16; border-color: var(--accent); }
     button.sim { background: #3b82f6; color: #fff; border-color: #3b82f6; }
     button.stop { background: var(--sns); color: #fff; border-color: var(--sns); }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .duration-selector { display: flex; background: #090d16; border-radius: 6px; border: 1px solid var(--border); overflow: hidden; }
+    .duration-selector button { background: transparent; border: none; padding: 6px 10px; color: var(--muted); font-size: 0.75rem; }
+    .duration-selector button.active { background: var(--border); color: var(--text); font-weight: 700; }
     .status-bar { display: flex; justify-content: space-between; background: var(--panel); padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; border: 1px solid var(--border); }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
     .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
@@ -49,11 +52,16 @@
 <header>
   <h1>GyroHRV <span style="font-size:0.8rem;color:var(--muted);font-weight:400;">| Analisi Simpatico / Parasimpatico (GCG)</span></h1>
   <div class="controls">
+    <div class="duration-selector">
+      <button id="btnDurManual" class="active" onclick="setDuration('manual')">Manuale</button>
+      <button id="btnDur3" onclick="setDuration(3)">3 Min</button>
+      <button id="btnDur5" onclick="setDuration(5)">5 Min</button>
+    </div>
     <button id="btnStartGyro" class="primary">Avvia Giroscopio</button>
     <button id="btnStartSim" class="sim">Simulazione GCG</button>
     <button id="btnStop" class="stop" disabled>Stop</button>
     <button id="btnReset">Reset</button>
-    <button id="btnExport">Esporta RR (Kubios CSV)</button>
+    <button id="btnExport">Esporta CSV</button>
   </div>
 </header>
 
@@ -135,536 +143,570 @@
 </div>
 
 <script>
-(() => {
-  let isRunning = false;
-  let mode = null;
-  let simTimer = null;
-  let startTime = 0;
-  let isStabilizing = false;
-  let stabilizationTimer = null;
+  let selectedDurationMinutes = 'manual';
 
-  const gcgBuffer = [];
-  const MAX_GCG_POINTS = 300;
-  const rrIntervals = [];
-  const rrTimestamps = [];
+  function setDuration(mins) {
+    selectedDurationMinutes = mins;
+    document.getElementById('btnDurManual').classList.remove('active');
+    document.getElementById('btnDur3').classList.remove('active');
+    document.getElementById('btnDur5').classList.remove('active');
 
-  let lpState = 0;
-  let hpState = 0;
-  let prevRaw = 0;
-  let envState = 0;
-  let adaptiveThreshold = 0.05;
-  let lastPeakTime = 0;
-  const REFRACTORY_MS = 380;
-
-  const statusText = document.getElementById('statusText');
-  const sampleInfo = document.getElementById('sampleInfo');
-  const gcgCanvas = document.getElementById('gcgCanvas');
-  const rrCanvas = document.getElementById('rrCanvas');
-  const psdCanvas = document.getElementById('psdCanvas');
-  const poincareCanvas = document.getElementById('poincareCanvas');
-
-  // Generatore di beep acustico tramite Web Audio API
-  function playBeep(frequency = 440, duration = 200) {
-    try {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContext) return;
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration / 1000);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + duration / 1000);
-    } catch (e) {
-      console.log('Audio non consentito dal browser', e);
-    }
+    if (mins === 'manual') document.getElementById('btnDurManual').classList.add('active');
+    else if (mins === 3) document.getElementById('btnDur3').classList.add('active');
+    else if (mins === 5) document.getElementById('btnDur5').classList.add('active');
   }
 
-  function processGcgSample(gx, gy, gz, timestampMs) {
-    const magnitude = Math.sqrt(gx * gx + gy * gy + 0.3 * gz * gz);
-    hpState = 0.92 * (hpState + magnitude - prevRaw);
-    prevRaw = magnitude;
-    lpState = lpState + 0.25 * (hpState - lpState);
+  (() => {
+    let isRunning = false;
+    let mode = null;
+    let simTimer = null;
+    let startTime = 0;
+    let isStabilizing = false;
+    let stabilizationTimer = null;
+    let recordingTimer = null;
 
-    const energy = Math.abs(lpState);
-    envState = 0.85 * envState + 0.15 * energy;
+    const gcgBuffer = [];
+    const MAX_GCG_POINTS = 300;
+    const rrIntervals = [];
+    const rrTimestamps = [];
 
-    gcgBuffer.push({ v: lpState, env: envState, peak: false });
-    if (gcgBuffer.length > MAX_GCG_POINTS) gcgBuffer.shift();
+    let lpState = 0;
+    let hpState = 0;
+    let prevRaw = 0;
+    let envState = 0;
+    let adaptiveThreshold = 0.05;
+    let lastPeakTime = 0;
+    const REFRACTORY_MS = 380;
 
-    adaptiveThreshold = 0.992 * adaptiveThreshold + 0.008 * (envState * 1.65);
-    const minThresh = 0.015;
-    const activeThresh = Math.max(adaptiveThreshold, minThresh);
+    const statusText = document.getElementById('statusText');
+    const sampleInfo = document.getElementById('sampleInfo');
+    const gcgCanvas = document.getElementById('gcgCanvas');
+    const rrCanvas = document.getElementById('rrCanvas');
+    const psdCanvas = document.getElementById('psdCanvas');
+    const poincareCanvas = document.getElementById('poincareCanvas');
 
-    if (envState > activeThresh && (timestampMs - lastPeakTime) > REFRACTORY_MS) {
-      if (lastPeakTime > 0) {
-        const rr = timestampMs - lastPeakTime;
-        if (rr >= 400 && rr <= 1500) {
-          if (rrIntervals.length >= 4) {
-            const recent = rrIntervals.slice(-5).sort((a, b) => a - b);
-            const med = recent[Math.floor(recent.length / 2)];
-            if (Math.abs(rr - med) / med < 0.25) {
+    function playBeep(frequency = 440, duration = 200) {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration / 1000);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + duration / 1000);
+      } catch (e) {
+        console.log('Audio non consentito', e);
+      }
+    }
+
+    function processGcgSample(gx, gy, gz, timestampMs) {
+      const magnitude = Math.sqrt(gx * gx + gy * gy + 0.3 * gz * gz);
+      hpState = 0.92 * (hpState + magnitude - prevRaw);
+      prevRaw = magnitude;
+      lpState = lpState + 0.25 * (hpState - lpState);
+
+      const energy = Math.abs(lpState);
+      envState = 0.85 * envState + 0.15 * energy;
+
+      gcgBuffer.push({ v: lpState, env: envState, peak: false });
+      if (gcgBuffer.length > MAX_GCG_POINTS) gcgBuffer.shift();
+
+      adaptiveThreshold = 0.992 * adaptiveThreshold + 0.008 * (envState * 1.65);
+      const minThresh = 0.015;
+      const activeThresh = Math.max(adaptiveThreshold, minThresh);
+
+      if (envState > activeThresh && (timestampMs - lastPeakTime) > REFRACTORY_MS) {
+        if (lastPeakTime > 0) {
+          const rr = timestampMs - lastPeakTime;
+          if (rr >= 400 && rr <= 1500) {
+            if (rrIntervals.length >= 4) {
+              const recent = rrIntervals.slice(-5).sort((a, b) => a - b);
+              const med = recent[Math.floor(recent.length / 2)];
+              if (Math.abs(rr - med) / med < 0.25) {
+                registerRR(rr);
+              }
+            } else {
               registerRR(rr);
             }
-          } else {
-            registerRR(rr);
           }
         }
+        lastPeakTime = timestampMs;
+        adaptiveThreshold = envState * 1.35;
+        gcgBuffer[gcgBuffer.length - 1].peak = true;
       }
-      lastPeakTime = timestampMs;
-      adaptiveThreshold = envState * 1.35;
-      gcgBuffer[gcgBuffer.length - 1].peak = true;
+
+      drawGCG();
     }
 
-    drawGCG();
-  }
+    function registerRR(rrMs) {
+      const cleanRR = Math.round(rrMs);
+      rrIntervals.push(cleanRR);
+      const prevT = rrTimestamps.length > 0 ? rrTimestamps[rrTimestamps.length - 1] : 0;
+      rrTimestamps.push(prevT + cleanRR);
 
-  function registerRR(rrMs) {
-    const cleanRR = Math.round(rrMs);
-    rrIntervals.push(cleanRR);
-    const prevT = rrTimestamps.length > 0 ? rrTimestamps[rrTimestamps.length - 1] : 0;
-    rrTimestamps.push(prevT + cleanRR);
+      const instBpm = Math.round(60000 / cleanRR);
+      document.getElementById('instHR').textContent = `${instBpm} BPM`;
+      document.getElementById('lastRR').textContent = `${cleanRR} ms`;
 
-    const instBpm = Math.round(60000 / cleanRR);
-    document.getElementById('instHR').textContent = `${instBpm} BPM`;
-    document.getElementById('lastRR').textContent = `${cleanRR} ms`;
+      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+      const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+      const ss = String(elapsedSec % 60).padStart(2, '0');
+      sampleInfo.textContent = `Battiti validi (NN): ${rrIntervals.length} | Durata: ${mm}:${ss}`;
 
-    const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-    const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
-    const ss = String(elapsedSec % 60).padStart(2, '0');
-    sampleInfo.textContent = `Battiti validi (NN): ${rrIntervals.length} | Durata: ${mm}:${ss}`;
-
-    drawRR();
-    if (rrIntervals.length >= 6) {
-      computeHRVMetrics();
-    }
-  }
-
-  function computeHRVMetrics() {
-    const N = rrIntervals.length;
-    const meanRR = rrIntervals.reduce((a, b) => a + b, 0) / N;
-    const meanHR = 60000 / meanRR;
-
-    let sumSqDiff = 0;
-    let nn50 = 0;
-    let sumSqDev = 0;
-    const diffs = [];
-
-    for (let i = 0; i < N; i++) {
-      sumSqDev += Math.pow(rrIntervals[i] - meanRR, 2);
-      if (i < N - 1) {
-        const d = rrIntervals[i + 1] - rrIntervals[i];
-        diffs.push(d);
-        sumSqDiff += d * d;
-        if (Math.abs(d) > 50) nn50++;
+      drawRR();
+      if (rrIntervals.length >= 6) {
+        computeHRVMetrics();
       }
     }
 
-    const sdnn = Math.sqrt(sumSqDev / (N - 1));
-    const rmssd = Math.sqrt(sumSqDiff / (N - 1));
-    const pnn50 = (nn50 / (N - 1)) * 100;
+    function computeHRVMetrics() {
+      const N = rrIntervals.length;
+      const meanRR = rrIntervals.reduce((a, b) => a + b, 0) / N;
+      const meanHR = 60000 / meanRR;
 
-    const meanDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
-    const varDiff = diffs.reduce((a, b) => a + Math.pow(b - meanDiff, 2), 0) / (diffs.length - 1 || 1);
-    const sd1 = Math.sqrt(0.5 * varDiff);
-    const sd2Sq = 2 * sdnn * sdnn - 0.5 * varDiff;
-    const sd2 = Math.sqrt(Math.max(sd2Sq, 0.1));
-    const sd21 = sd2 / (sd1 || 1);
+      let sumSqDiff = 0;
+      let nn50 = 0;
+      let sumSqDev = 0;
+      const diffs = [];
 
-    const sorted = [...rrIntervals].sort((a, b) => a - b);
-    const minRR = sorted[0];
-    const maxRR = sorted[sorted.length - 1];
-    const mxDMn = Math.max((maxRR - minRR) / 1000, 0.05);
+      for (let i = 0; i < N; i++) {
+        sumSqDev += Math.pow(rrIntervals[i] - meanRR, 2);
+        if (i < N - 1) {
+          const d = rrIntervals[i + 1] - rrIntervals[i];
+          diffs.push(d);
+          sumSqDiff += d * d;
+          if (Math.abs(d) > 50) nn50++;
+        }
+      }
 
-    const bins = {};
-    let maxBinCount = 0;
-    let modeBin = meanRR;
-    for (const val of rrIntervals) {
-      const b = Math.round(val / 50) * 50;
-      bins[b] = (bins[b] || 0) + 1;
-      if (bins[b] > maxBinCount) {
-        maxBinCount = bins[b];
-        modeBin = b;
+      const sdnn = Math.sqrt(sumSqDev / (N - 1));
+      const rmssd = Math.sqrt(sumSqDiff / (N - 1));
+      const pnn50 = (nn50 / (N - 1)) * 100;
+
+      const meanDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+      const varDiff = diffs.reduce((a, b) => a + Math.pow(b - meanDiff, 2), 0) / (diffs.length - 1 || 1);
+      const sd1 = Math.sqrt(0.5 * varDiff);
+      const sd2Sq = 2 * sdnn * sdnn - 0.5 * varDiff;
+      const sd2 = Math.sqrt(Math.max(sd2Sq, 0.1));
+      const sd21 = sd2 / (sd1 || 1);
+
+      const sorted = [...rrIntervals].sort((a, b) => a - b);
+      const minRR = sorted[0];
+      const maxRR = sorted[sorted.length - 1];
+      const mxDMn = Math.max((maxRR - minRR) / 1000, 0.05);
+
+      const bins = {};
+      let maxBinCount = 0;
+      let modeBin = meanRR;
+      for (const val of rrIntervals) {
+        const b = Math.round(val / 50) * 50;
+        bins[b] = (bins[b] || 0) + 1;
+        if (bins[b] > maxBinCount) {
+          maxBinCount = bins[b];
+          modeBin = b;
+        }
+      }
+      const AMo = (maxBinCount / N) * 100;
+      const MoSec = modeBin / 1000;
+      const stressIndex = AMo / (2 * MoSec * mxDMn);
+
+      const zRR = (meanRR - 926) / 90;
+      const zRMSSD = (rmssd - 42) / 15;
+      const zSD1 = (sd1 - 29) / 12;
+      const pnsIndex = (zRR + zRMSSD + zSD1) / 3;
+
+      const zHR = (meanHR - 66) / 8;
+      const zSI = (stressIndex - 100) / 50;
+      const zSD2 = (50 - sd2) / 18;
+      const snsIndex = (zHR + zSI + zSD2) / 3;
+
+      document.getElementById('mMeanRR').textContent = `${meanRR.toFixed(1)} ms`;
+      document.getElementById('mMeanHR').textContent = `${meanHR.toFixed(1)} bpm`;
+      document.getElementById('mRMSSD').textContent = `${rmssd.toFixed(1)} ms`;
+      document.getElementById('mPNN50').textContent = `${pnn50.toFixed(1)} %`;
+      document.getElementById('mSDNN').textContent = `${sdnn.toFixed(1)} ms`;
+      document.getElementById('mSD1').textContent = `${sd1.toFixed(1)} ms`;
+      document.getElementById('mSD2').textContent = `${sd2.toFixed(1)} ms`;
+      document.getElementById('mSD21').textContent = sd21.toFixed(2);
+      document.getElementById('mSI').textContent = stressIndex.toFixed(1);
+
+      document.getElementById('pnsVal').textContent = (pnsIndex >= 0 ? '+' : '') + pnsIndex.toFixed(2);
+      document.getElementById('snsVal').textContent = (snsIndex >= 0 ? '+' : '') + snsIndex.toFixed(2);
+      document.getElementById('pnsBar').style.width = `${Math.min(95, Math.max(5, 50 + pnsIndex * 18))}%`;
+      document.getElementById('snsBar').style.width = `${Math.min(95, Math.max(5, 50 + snsIndex * 18))}%`;
+
+      const stateEl = document.getElementById('mState');
+      if (pnsIndex - snsIndex > 0.4) {
+        stateEl.textContent = 'Dominanza Parasimpatica (Recupero)';
+        stateEl.className = 'tag-pns';
+      } else if (snsIndex - pnsIndex > 0.4) {
+        stateEl.textContent = 'Dominanza Simpatica (Stress)';
+        stateEl.className = 'tag-sns';
+      } else {
+        stateEl.textContent = 'Equilibrio Simpatovagale';
+        stateEl.className = '';
+      }
+
+      drawPoincare(meanRR, sd1, sd2);
+
+      if (rrTimestamps[rrTimestamps.length - 1] >= 15000) {
+        computeFrequencyDomain();
       }
     }
-    const AMo = (maxBinCount / N) * 100;
-    const MoSec = modeBin / 1000;
-    const stressIndex = AMo / (2 * MoSec * mxDMn);
 
-    const zRR = (meanRR - 926) / 90;
-    const zRMSSD = (rmssd - 42) / 15;
-    const zSD1 = (sd1 - 29) / 12;
-    const pnsIndex = (zRR + zRMSSD + zSD1) / 3;
+    function computeFrequencyDomain() {
+      const fs = 4;
+      const stepMs = 1000 / fs;
+      const totalDuration = rrTimestamps[rrTimestamps.length - 1];
+      const startT = rrTimestamps[0];
 
-    const zHR = (meanHR - 66) / 8;
-    const zSI = (stressIndex - 100) / 50;
-    const zSD2 = (50 - sd2) / 18;
-    const snsIndex = (zHR + zSI + zSD2) / 3;
-
-    document.getElementById('mMeanRR').textContent = `${meanRR.toFixed(1)} ms`;
-    document.getElementById('mMeanHR').textContent = `${meanHR.toFixed(1)} bpm`;
-    document.getElementById('mRMSSD').textContent = `${rmssd.toFixed(1)} ms`;
-    document.getElementById('mPNN50').textContent = `${pnn50.toFixed(1)} %`;
-    document.getElementById('mSDNN').textContent = `${sdnn.toFixed(1)} ms`;
-    document.getElementById('mSD1').textContent = `${sd1.toFixed(1)} ms`;
-    document.getElementById('mSD2').textContent = `${sd2.toFixed(1)} ms`;
-    document.getElementById('mSD21').textContent = sd21.toFixed(2);
-    document.getElementById('mSI').textContent = stressIndex.toFixed(1);
-
-    document.getElementById('pnsVal').textContent = (pnsIndex >= 0 ? '+' : '') + pnsIndex.toFixed(2);
-    document.getElementById('snsVal').textContent = (snsIndex >= 0 ? '+' : '') + snsIndex.toFixed(2);
-    document.getElementById('pnsBar').style.width = `${Math.min(95, Math.max(5, 50 + pnsIndex * 18))}%`;
-    document.getElementById('snsBar').style.width = `${Math.min(95, Math.max(5, 50 + snsIndex * 18))}%`;
-
-    const stateEl = document.getElementById('mState');
-    if (pnsIndex - snsIndex > 0.4) {
-      stateEl.textContent = 'Dominanza Parasimpatica (Recupero)';
-      stateEl.className = 'tag-pns';
-    } else if (snsIndex - pnsIndex > 0.4) {
-      stateEl.textContent = 'Dominanza Simpatica (Stress)';
-      stateEl.className = 'tag-sns';
-    } else {
-      stateEl.textContent = 'Equilibrio Simpatovagale';
-      stateEl.className = '';
-    }
-
-    drawPoincare(meanRR, sd1, sd2);
-
-    if (rrTimestamps[rrTimestamps.length - 1] >= 15000) {
-      computeFrequencyDomain();
-    }
-  }
-
-  function computeFrequencyDomain() {
-    const fs = 4;
-    const stepMs = 1000 / fs;
-    const totalDuration = rrTimestamps[rrTimestamps.length - 1];
-    const startT = rrTimestamps[0];
-
-    const resampled = [];
-    let idx = 0;
-    for (let t = startT; t <= totalDuration; t += stepMs) {
-      while (idx < rrTimestamps.length - 2 && rrTimestamps[idx + 1] < t) {
-        idx++;
+      const resampled = [];
+      let idx = 0;
+      for (let t = startT; t <= totalDuration; t += stepMs) {
+        while (idx < rrTimestamps.length - 2 && rrTimestamps[idx + 1] < t) {
+          idx++;
+        }
+        const t0 = rrTimestamps[idx];
+        const t1 = rrTimestamps[idx + 1];
+        const v0 = rrIntervals[idx];
+        const v1 = rrIntervals[idx + 1];
+        const frac = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+        resampled.push(v0 + frac * (v1 - v0));
       }
-      const t0 = rrTimestamps[idx];
-      const t1 = rrTimestamps[idx + 1];
-      const v0 = rrIntervals[idx];
-      const v1 = rrIntervals[idx + 1];
-      const frac = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
-      resampled.push(v0 + frac * (v1 - v0));
-    }
 
-    const M = resampled.length;
-    if (M < 32) return;
+      const M = resampled.length;
+      if (M < 32) return;
 
-    const mean = resampled.reduce((a, b) => a + b, 0) / M;
-    const windowed = new Float64Array(M);
-    let winPower = 0;
-    for (let n = 0; n < M; n++) {
-      const w = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (M - 1)));
-      windowed[n] = (resampled[n] - mean) * w;
-      winPower += w * w;
-    }
-
-    const df = fs / M;
-    let vlf = 0, lf = 0, hf = 0;
-    const spectrum = [];
-
-    for (let k = 1; k < M / 2; k++) {
-      const f = k * df;
-      if (f > 0.45) break;
-      let re = 0, im = 0;
+      const mean = resampled.reduce((a, b) => a + b, 0) / M;
+      const windowed = new Float64Array(M);
+      let winPower = 0;
       for (let n = 0; n < M; n++) {
-        const angle = (2 * Math.PI * k * n) / M;
-        re += windowed[n] * Math.cos(angle);
-        im -= windowed[n] * Math.sin(angle);
+        const w = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (M - 1)));
+        windowed[n] = (resampled[n] - mean) * w;
+        winPower += w * w;
       }
-      const psd = (2 * (re * re + im * im)) / (fs * winPower);
-      const power = psd * df;
-      spectrum.push({ f, psd });
 
-      if (f >= 0.003 && f < 0.04) vlf += power;
-      else if (f >= 0.04 && f < 0.15) lf += power;
-      else if (f >= 0.15 && f <= 0.40) hf += power;
+      const df = fs / M;
+      let vlf = 0, lf = 0, hf = 0;
+      const spectrum = [];
+
+      for (let k = 1; k < M / 2; k++) {
+        const f = k * df;
+        if (f > 0.45) break;
+        let re = 0, im = 0;
+        for (let n = 0; n < M; n++) {
+          const angle = (2 * Math.PI * k * n) / M;
+          re += windowed[n] * Math.cos(angle);
+          im -= windowed[n] * Math.sin(angle);
+        }
+        const psd = (2 * (re * re + im * im)) / (fs * winPower);
+        const power = psd * df;
+        spectrum.push({ f, psd });
+
+        if (f >= 0.003 && f < 0.04) vlf += power;
+        else if (f >= 0.04 && f < 0.15) lf += power;
+        else if (f >= 0.15 && f <= 0.40) hf += power;
+      }
+
+      const totalLFHF = lf + hf || 1;
+      const lfPct = (lf / totalLFHF) * 100;
+      const hfPct = (hf / totalLFHF) * 100;
+      const lfhfRatio = lf / (hf || 0.001);
+
+      document.getElementById('mVLF').textContent = `${vlf.toFixed(0)} ms²`;
+      document.getElementById('mLF').textContent = `${lf.toFixed(0)} ms² (${lfPct.toFixed(1)}%)`;
+      document.getElementById('mHF').textContent = `${hf.toFixed(0)} ms² (${hfPct.toFixed(1)}%)`;
+      document.getElementById('mLFHF').textContent = lfhfRatio.toFixed(2);
+
+      drawPSD(spectrum);
     }
 
-    const totalLFHF = lf + hf || 1;
-    const lfPct = (lf / totalLFHF) * 100;
-    const hfPct = (hf / totalLFHF) * 100;
-    const lfhfRatio = lf / (hf || 0.001);
+    function drawGCG() {
+      const ctx = gcgCanvas.getContext('2d');
+      const w = gcgCanvas.width, h = gcgCanvas.height;
+      ctx.clearRect(0, 0, w, h);
 
-    document.getElementById('mVLF').textContent = `${vlf.toFixed(0)} ms²`;
-    document.getElementById('mLF').textContent = `${lf.toFixed(0)} ms² (${lfPct.toFixed(1)}%)`;
-    document.getElementById('mHF').textContent = `${hf.toFixed(0)} ms² (${hfPct.toFixed(1)}%)`;
-    document.getElementById('mLFHF').textContent = lfhfRatio.toFixed(2);
+      if (gcgBuffer.length < 2) return;
+      let maxVal = 0.05;
+      for (const p of gcgBuffer) {
+        if (Math.abs(p.v) > maxVal) maxVal = Math.abs(p.v);
+      }
 
-    drawPSD(spectrum);
-  }
-
-  function drawGCG() {
-    const ctx = gcgCanvas.getContext('2d');
-    const w = gcgCanvas.width, h = gcgCanvas.height;
-    ctx.clearRect(0, 0, w, h);
-
-    if (gcgBuffer.length < 2) return;
-    let maxVal = 0.05;
-    for (const p of gcgBuffer) {
-      if (Math.abs(p.v) > maxVal) maxVal = Math.abs(p.v);
-    }
-
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    gcgBuffer.forEach((p, i) => {
-      const x = (i / (MAX_GCG_POINTS - 1)) * w;
-      const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-
-    ctx.fillStyle = '#f43f5e';
-    gcgBuffer.forEach((p, i) => {
-      if (p.peak) {
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      gcgBuffer.forEach((p, i) => {
         const x = (i / (MAX_GCG_POINTS - 1)) * w;
         const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = '#f43f5e';
+      gcgBuffer.forEach((p, i) => {
+        if (p.peak) {
+          const x = (i / (MAX_GCG_POINTS - 1)) * w;
+          const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
+          ctx.beginPath();
+          ctx.arc(x, y, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function drawRR() {
+      const ctx = rrCanvas.getContext('2d');
+      const w = rrCanvas.width, h = rrCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      const view = rrIntervals.slice(-60);
+      if (view.length < 2) return;
+
+      const min = Math.min(...view) - 30;
+      const max = Math.max(...view) + 30;
+      const range = Math.max(max - min, 100);
+
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      view.forEach((val, i) => {
+        const x = (i / (view.length - 1)) * (w - 20) + 10;
+        const y = h - 15 - ((val - min) / range) * (h - 30);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    function drawPSD(spectrum) {
+      const ctx = psdCanvas.getContext('2d');
+      const w = psdCanvas.width, h = psdCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+      if (spectrum.length < 2) return;
+
+      const maxPsd = Math.max(...spectrum.map(s => s.psd), 1);
+
+      spectrum.forEach((s, i) => {
+        if (i === 0) return;
+        const x0 = (spectrum[i - 1].f / 0.45) * w;
+        const x1 = (s.f / 0.45) * w;
+        const y0 = h - (spectrum[i - 1].psd / maxPsd) * (h - 15);
+        const y1 = h - (s.psd / maxPsd) * (h - 15);
+
+        ctx.fillStyle = s.f < 0.04 ? '#64748b' : (s.f < 0.15 ? 'rgba(244,63,94,0.45)' : 'rgba(56,189,248,0.45)');
         ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.moveTo(x0, h);
+        ctx.lineTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x1, h);
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+
+    function drawPoincare(meanRR, sd1, sd2) {
+      const ctx = poincareCanvas.getContext('2d');
+      const w = poincareCanvas.width, h = poincareCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+      if (rrIntervals.length < 4) return;
+
+      const min = Math.min(...rrIntervals) - 50;
+      const max = Math.max(...rrIntervals) + 50;
+      const span = Math.max(max - min, 200);
+
+      const mapX = v => 30 + ((v - min) / span) * (w - 60);
+      const mapY = v => h - 25 - ((v - min) / span) * (h - 50);
+
+      ctx.strokeStyle = '#334155';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(mapX(min), mapY(min));
+      ctx.lineTo(mapX(max), mapY(max));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#38bdf8';
+      for (let i = 0; i < rrIntervals.length - 1; i++) {
+        const x = mapX(rrIntervals[i]);
+        const y = mapY(rrIntervals[i + 1]);
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();
       }
-    });
-  }
 
-  function drawRR() {
-    const ctx = rrCanvas.getContext('2d');
-    const w = rrCanvas.width, h = rrCanvas.height;
-    ctx.clearRect(0, 0, w, h);
+      const cx = mapX(meanRR);
+      const cy = mapY(meanRR);
+      const scaleX = (w - 60) / span;
+      const scaleY = (h - 50) / span;
+      const scale = (scaleX + scaleY) / 2;
 
-    const view = rrIntervals.slice(-60);
-    if (view.length < 2) return;
-
-    const min = Math.min(...view) - 30;
-    const max = Math.max(...view) + 30;
-    const range = Math.max(max - min, 100);
-
-    ctx.strokeStyle = '#10b981';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    view.forEach((val, i) => {
-      const x = (i / (view.length - 1)) * (w - 20) + 10;
-      const y = h - 15 - ((val - min) / range) * (h - 30);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-  }
-
-  function drawPSD(spectrum) {
-    const ctx = psdCanvas.getContext('2d');
-    const w = psdCanvas.width, h = psdCanvas.height;
-    ctx.clearRect(0, 0, w, h);
-    if (spectrum.length < 2) return;
-
-    const maxPsd = Math.max(...spectrum.map(s => s.psd), 1);
-
-    spectrum.forEach((s, i) => {
-      if (i === 0) return;
-      const x0 = (spectrum[i - 1].f / 0.45) * w;
-      const x1 = (s.f / 0.45) * w;
-      const y0 = h - (spectrum[i - 1].psd / maxPsd) * (h - 15);
-      const y1 = h - (s.psd / maxPsd) * (h - 15);
-
-      ctx.fillStyle = s.f < 0.04 ? '#64748b' : (s.f < 0.15 ? 'rgba(244,63,94,0.45)' : 'rgba(56,189,248,0.45)');
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-Math.PI / 4);
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.moveTo(x0, h);
-      ctx.lineTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.lineTo(x1, h);
-      ctx.closePath();
-      ctx.fill();
-    });
-  }
-
-  function drawPoincare(meanRR, sd1, sd2) {
-    const ctx = poincareCanvas.getContext('2d');
-    const w = poincareCanvas.width, h = poincareCanvas.height;
-    ctx.clearRect(0, 0, w, h);
-    if (rrIntervals.length < 4) return;
-
-    const min = Math.min(...rrIntervals) - 50;
-    const max = Math.max(...rrIntervals) + 50;
-    const span = Math.max(max - min, 200);
-
-    const mapX = v => 30 + ((v - min) / span) * (w - 60);
-    const mapY = v => h - 25 - ((v - min) / span) * (h - 50);
-
-    ctx.strokeStyle = '#334155';
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(mapX(min), mapY(min));
-    ctx.lineTo(mapX(max), mapY(max));
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = '#38bdf8';
-    for (let i = 0; i < rrIntervals.length - 1; i++) {
-      const x = mapX(rrIntervals[i]);
-      const y = mapY(rrIntervals[i + 1]);
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.ellipse(0, 0, sd2 * scale, sd1 * scale, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
 
-    const cx = mapX(meanRR);
-    const cy = mapY(meanRR);
-    const scaleX = (w - 60) / span;
-    const scaleY = (h - 50) / span;
-    const scale = (scaleX + scaleY) / 2;
+    function handleMotion(event) {
+      if (!isRunning || mode !== 'gyro') return;
+      if (isStabilizing) return;
+      const rot = event.rotationRate;
+      if (!rot) return;
+      processGcgSample(rot.alpha || 0, rot.beta || 0, rot.gamma || 0, performance.now());
+    }
 
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(-Math.PI / 4);
-    ctx.strokeStyle = '#f43f5e';
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, sd2 * scale, sd1 * scale, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function handleMotion(event) {
-    if (!isRunning || mode !== 'gyro') return;
-    if (isStabilizing) return;
-    const rot = event.rotationRate;
-    if (!rot) return;
-    processGcgSample(rot.alpha || 0, rot.beta || 0, rot.gamma || 0, performance.now());
-  }
-
-  async function startGyro() {
-    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-      try {
-        const perm = await DeviceMotionEvent.requestPermission();
-        if (perm !== 'granted') {
-          statusText.textContent = 'Errore: Permesso giroscopio negato.';
+    async function startGyro() {
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        try {
+          const perm = await DeviceMotionEvent.requestPermission();
+          if (perm !== 'granted') {
+            statusText.textContent = 'Errore: Permesso giroscopio negato.';
+            return;
+          }
+        } catch (err) {
+          statusText.textContent = 'Errore permessi sensore (richiesto HTTPS).';
           return;
         }
-      } catch (err) {
-        statusText.textContent = 'Errore permessi sensore (richiesto HTTPS).';
+      }
+
+      resetSession();
+      isRunning = true;
+      mode = 'gyro';
+      isStabilizing = true;
+
+      let countdown = 60;
+      statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
+      updateButtons();
+
+      stabilizationTimer = setInterval(() => {
+        countdown--;
+        if (countdown > 0) {
+          statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
+        } else {
+          clearInterval(stabilizationTimer);
+          isStabilizing = false;
+          startTime = Date.now();
+          playBeep(880, 400); // Beep acuto di inizio
+          statusText.textContent = 'Acquisizione in corso...';
+
+          // Se è stato scelto un limite temporale (3 o 5 minuti)
+          if (selectedDurationMinutes !== 'manual') {
+            const durationMs = selectedDurationMinutes * 60 * 1000;
+            recordingTimer = setTimeout(() => {
+              stopAcquisition();
+              statusText.textContent = `Sessione completata (${selectedDurationMinutes} minuti).`;
+            }, durationMs);
+          }
+        }
+      }, 1000);
+
+      window.addEventListener('devicemotion', handleMotion, true);
+    }
+
+    function startSimulation() {
+      resetSession();
+      isRunning = true;
+      mode = 'sim';
+      startTime = Date.now();
+      statusText.textContent = 'Simulazione GCG attiva.';
+      playBeep(880, 400);
+      updateButtons();
+
+      if (selectedDurationMinutes !== 'manual') {
+        const durationMs = selectedDurationMinutes * 60 * 1000;
+        recordingTimer = setTimeout(() => {
+          stopAcquisition();
+          statusText.textContent = `Simulazione completata (${selectedDurationMinutes} minuti).`;
+        }, durationMs);
+      }
+
+      let simTime = 0;
+      let nextBeatTime = 850;
+      simTimer = setInterval(() => {
+        simTime += 20;
+        const tSec = simTime / 1000;
+        let gx = (Math.random() - 0.5) * 0.04;
+        let gy = (Math.random() - 0.5) * 0.04;
+
+        if (simTime >= nextBeatTime) {
+          gx += 1.4;
+          gy += 1.1;
+          const hfMod = 48 * Math.sin(2 * Math.PI * 0.25 * tSec);
+          const lfMod = 32 * Math.sin(2 * Math.PI * 0.10 * tSec);
+          const nextRR = 860 + hfMod + lfMod + (Math.random() - 0.5) * 14;
+          nextBeatTime = simTime + nextRR;
+        }
+        processGcgSample(gx, gy, 0.02, simTime);
+      }, 20);
+    }
+
+    function stopAcquisition() {
+      if (!isRunning) return;
+      isRunning = false;
+      isStabilizing = false;
+      if (stabilizationTimer) clearInterval(stabilizationTimer);
+      if (recordingTimer) clearTimeout(recordingTimer);
+      window.removeEventListener('devicemotion', handleMotion, true);
+      if (simTimer) clearInterval(simTimer);
+      playBeep(440, 600); // Beep grave di fine sessione
+      if (!statusText.textContent.includes('completata')) {
+        statusText.textContent = 'Acquisizione terminata.';
+      }
+      updateButtons();
+    }
+
+    function resetSession() {
+      stopAcquisition();
+      gcgBuffer.length = 0;
+      rrIntervals.length = 0;
+      rrTimestamps.length = 0;
+      lastPeakTime = 0;
+      sampleInfo.textContent = 'Battiti validi (NN): 0 | Durata: 00:00';
+      statusText.textContent = 'Stato: Pronto.';
+      ['gcgCanvas', 'rrCanvas', 'psdCanvas', 'poincareCanvas'].forEach(id => {
+        const c = document.getElementById(id);
+        c.getContext('2d').clearRect(0, 0, c.width, c.height);
+      });
+    }
+
+    function exportCSV() {
+      if (rrIntervals.length === 0) {
+        alert('Nessun intervallo RR registrato.');
         return;
       }
+      const content = rrIntervals.join('\n');
+      const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `gyro_rr_kubios_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
-    resetSession();
-    isRunning = true;
-    mode = 'gyro';
-    isStabilizing = true;
-
-    let countdown = 60;
-    statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
-    updateButtons();
-
-    stabilizationTimer = setInterval(() => {
-      countdown--;
-      if (countdown > 0) {
-        statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
-      } else {
-        clearInterval(stabilizationTimer);
-        isStabilizing = false;
-        startTime = Date.now();
-        playBeep(880, 400); // Beep acuto di inizio rilevazione effettiva
-        statusText.textContent = 'Acquisizione Giroscopio attiva — Rilasciare il corpo e mantenere la posizione.';
-      }
-    }, 1000);
-
-    window.addEventListener('devicemotion', handleMotion, true);
-  }
-
-  function startSimulation() {
-    resetSession();
-    isRunning = true;
-    mode = 'sim';
-    startTime = Date.now();
-    statusText.textContent = 'Simulazione GCG attiva.';
-    playBeep(880, 400);
-    updateButtons();
-
-    let simTime = 0;
-    let nextBeatTime = 850;
-    simTimer = setInterval(() => {
-      simTime += 20;
-      const tSec = simTime / 1000;
-      let gx = (Math.random() - 0.5) * 0.04;
-      let gy = (Math.random() - 0.5) * 0.04;
-
-      if (simTime >= nextBeatTime) {
-        gx += 1.4;
-        gy += 1.1;
-        const hfMod = 48 * Math.sin(2 * Math.PI * 0.25 * tSec);
-        const lfMod = 32 * Math.sin(2 * Math.PI * 0.10 * tSec);
-        const nextRR = 860 + hfMod + lfMod + (Math.random() - 0.5) * 14;
-        nextBeatTime = simTime + nextRR;
-      }
-      processGcgSample(gx, gy, 0.02, simTime);
-    }, 20);
-  }
-
-  function stopAcquisition() {
-    isRunning = false;
-    isStabilizing = false;
-    if (stabilizationTimer) clearInterval(stabilizationTimer);
-    window.removeEventListener('devicemotion', handleMotion, true);
-    if (simTimer) clearInterval(simTimer);
-    playBeep(440, 600); // Beep grave di fine acquisizione
-    statusText.textContent = 'Acquisizione terminata.';
-    updateButtons();
-  }
-
-  function resetSession() {
-    stopAcquisition();
-    gcgBuffer.length = 0;
-    rrIntervals.length = 0;
-    rrTimestamps.length = 0;
-    lastPeakTime = 0;
-    sampleInfo.textContent = 'Battiti validi (NN): 0 | Durata: 00:00';
-    statusText.textContent = 'Stato: Pronto.';
-    ['gcgCanvas', 'rrCanvas', 'psdCanvas', 'poincareCanvas'].forEach(id => {
-      const c = document.getElementById(id);
-      c.getContext('2d').clearRect(0, 0, c.width, c.height);
-    });
-  }
-
-  function exportCSV() {
-    if (rrIntervals.length === 0) {
-      alert('Nessun intervallo RR registrato.');
-      return;
+    function updateButtons() {
+      document.getElementById('btnStartGyro').disabled = isRunning;
+      document.getElementById('btnStartSim').disabled = isRunning;
+      document.getElementById('btnStop').disabled = !isRunning;
     }
-    const content = rrIntervals.join('\n');
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `gyro_rr_kubios_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
 
-  function updateButtons() {
-    document.getElementById('btnStartGyro').disabled = isRunning;
-    document.getElementById('btnStartSim').disabled = isRunning;
-    document.getElementById('btnStop').disabled = !isRunning;
-  }
-
-  document.getElementById('btnStartGyro').addEventListener('click', startGyro);
-  document.getElementById('btnStartSim').addEventListener('click', startSimulation);
-  document.getElementById('btnStop').addEventListener('click', stopAcquisition);
-  document.getElementById('btnReset').addEventListener('click', resetSession);
-  document.getElementById('btnExport').addEventListener('click5', exportCSV);
-})();
+    document.getElementById('btnStartGyro').addEventListener('click', startGyro);
+    document.getElementById('btnStartSim').addEventListener('click', startSimulation);
+    document.getElementById('btnStop').addEventListener('click', stopAcquisition);
+    document.getElementById('btnReset').addEventListener('click', resetSession);
+    document.getElementById('btnExport').addEventListener('click', exportCSV);
+  })();
 </script>
 </body>
 </html>
