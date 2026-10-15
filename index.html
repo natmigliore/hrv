@@ -71,19 +71,16 @@
 </div>
 
 <div class="grid">
-  <!-- Tracciato Giroscopio Real-Time -->
   <div class="card">
     <h2>Segnale Girocardiografico (GCG Filtrato) <span id="instHR">-- BPM</span></h2>
     <canvas id="gcgCanvas" width="600" height="150"></canvas>
   </div>
 
-  <!-- Tacogramma RR -->
   <div class="card">
     <h2>Tacogramma Intervalli RR (ms) <span id="lastRR">-- ms</span></h2>
     <canvas id="rrCanvas" width="600" height="150"></canvas>
   </div>
 
-  <!-- Bilancio Autonomico Kubios -->
   <div class="card">
     <h2>Bilancio Sistema Nervoso Autonomo (ANS)</h2>
     <div class="bar-wrap">
@@ -108,7 +105,6 @@
     </table>
   </div>
 
-  <!-- Dominio del Tempo -->
   <div class="card">
     <h2>Dominio del Tempo (Time-Domain)</h2>
     <table class="metrics-table">
@@ -120,7 +116,6 @@
     </table>
   </div>
 
-  <!-- Dominio della Frequenza -->
   <div class="card">
     <h2>Dominio della Frequenza (Spettro FFT)</h2>
     <canvas id="psdCanvas" width="600" height="110" style="height:110px;margin-bottom:8px;"></canvas>
@@ -131,7 +126,6 @@
     </table>
   </div>
 
-  <!-- Analisi Non-Lineare & Poincaré -->
   <div class="card">
     <h2>Poincaré Plot ($RR_n$ vs $RR_{n+1}$)</h2>
     <canvas id="poincareCanvas" class="poincare-canvas" width="400" height="220"></canvas>
@@ -164,6 +158,7 @@
     let isStabilizing = false;
     let stabilizationTimer = null;
     let recordingTimer = null;
+    let wakeLock = null; // Riferimento per il blocco dello standby
 
     const gcgBuffer = [];
     const MAX_GCG_POINTS = 300;
@@ -184,6 +179,29 @@
     const rrCanvas = document.getElementById('rrCanvas');
     const psdCanvas = document.getElementById('psdCanvas');
     const poincareCanvas = document.getElementById('poincareCanvas');
+
+    // Attiva il Wake Lock per impedire lo standby dello schermo
+    async function requestWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+        } catch (err) {
+          console.log('Wake Lock non riuscito:', err);
+        }
+      }
+    }
+
+    // Rilascia il Wake Lock
+    async function releaseWakeLock() {
+      if (wakeLock !== null) {
+        try {
+          await wakeLock.release();
+          wakeLock = null;
+        } catch (err) {
+          console.log('Rilascio Wake Lock fallito:', err);
+        }
+      }
+    }
 
     function playBeep(frequency = 440, duration = 200) {
       try {
@@ -585,6 +603,9 @@
       mode = 'gyro';
       isStabilizing = true;
 
+      // Richiede il blocco dello standby dello schermo
+      await requestWakeLock();
+
       let countdown = 60;
       statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
       updateButtons();
@@ -597,10 +618,9 @@
           clearInterval(stabilizationTimer);
           isStabilizing = false;
           startTime = Date.now();
-          playBeep(880, 400); // Beep acuto di inizio
+          playBeep(880, 400);
           statusText.textContent = 'Acquisizione in corso...';
 
-          // Se è stato scelto un limite temporale (3 o 5 minuti)
           if (selectedDurationMinutes !== 'manual') {
             const durationMs = selectedDurationMinutes * 60 * 1000;
             recordingTimer = setTimeout(() => {
@@ -614,7 +634,7 @@
       window.addEventListener('devicemotion', handleMotion, true);
     }
 
-    function startSimulation() {
+    async function startSimulation() {
       resetSession();
       isRunning = true;
       mode = 'sim';
@@ -622,6 +642,8 @@
       statusText.textContent = 'Simulazione GCG attiva.';
       playBeep(880, 400);
       updateButtons();
+
+      await requestWakeLock();
 
       if (selectedDurationMinutes !== 'manual') {
         const durationMs = selectedDurationMinutes * 60 * 1000;
@@ -659,7 +681,11 @@
       if (recordingTimer) clearTimeout(recordingTimer);
       window.removeEventListener('devicemotion', handleMotion, true);
       if (simTimer) clearInterval(simTimer);
-      playBeep(440, 600); // Beep grave di fine sessione
+      
+      // Rilascia il blocco dello schermo per permettere il normale risparmio energetico
+      releaseWakeLock();
+
+      playBeep(440, 600);
       if (!statusText.textContent.includes('completata')) {
         statusText.textContent = 'Acquisizione terminata.';
       }
