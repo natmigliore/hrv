@@ -136,28 +136,26 @@
 
 <script>
 (() => {
-  // Stato dell'acquisizione
   let isRunning = false;
   let mode = null; // 'gyro' | 'sim'
   let simTimer = null;
   let startTime = 0;
+  let isStabilizing = false;
+  let stabilizationTimer = null;
 
-  // Buffer segnale GCG e intervalli RR
   const gcgBuffer = [];
   const MAX_GCG_POINTS = 300;
-  const rrIntervals = []; // in ms
-  const rrTimestamps = []; // in ms cumulativi
+  const rrIntervals = [];
+  const rrTimestamps = [];
 
-  // Variabili filtro digitale e Peak Detection
   let lpState = 0;
   let hpState = 0;
   let prevRaw = 0;
   let envState = 0;
   let adaptiveThreshold = 0.05;
   let lastPeakTime = 0;
-  const REFRACTORY_MS = 380; // Max ~157 bpm per evitare doppi picchi S1/S2 (AO/AC)
+  const REFRACTORY_MS = 380;
 
-  // Riferimenti UI
   const statusText = document.getElementById('statusText');
   const sampleInfo = document.getElementById('sampleInfo');
   const gcgCanvas = document.getElementById('gcgCanvas');
@@ -165,37 +163,26 @@
   const psdCanvas = document.getElementById('psdCanvas');
   const poincareCanvas = document.getElementById('poincareCanvas');
 
-  // Filtro passa-banda IIR semplificato per enfatizzare l'impulso meccanico cardiaco (GCG)
   function processGcgSample(gx, gy, gz, timestampMs) {
-    // Energia rotazionale planare (assi X e Y sono i più sensibili sullo sterno)
     const magnitude = Math.sqrt(gx * gx + gy * gy + 0.3 * gz * gz);
-
-    // Filtro passa-alto (rimuove deriva posturale/respiratoria lenta)
     hpState = 0.92 * (hpState + magnitude - prevRaw);
     prevRaw = magnitude;
-
-    // Filtro passa-basso (smussa rumore ad alta frequenza)
     lpState = lpState + 0.25 * (hpState - lpState);
 
-    // Energia dell'impulso (quadrato del segnale filtrato con inviluppo)
     const energy = Math.abs(lpState);
     envState = 0.85 * envState + 0.15 * energy;
 
     gcgBuffer.push({ v: lpState, env: envState, peak: false });
     if (gcgBuffer.length > MAX_GCG_POINTS) gcgBuffer.shift();
 
-    // Soglia adattiva esponenziale
     adaptiveThreshold = 0.992 * adaptiveThreshold + 0.008 * (envState * 1.65);
     const minThresh = 0.015;
     const activeThresh = Math.max(adaptiveThreshold, minThresh);
 
-    // Rilevamento picco J / apertura aortica
     if (envState > activeThresh && (timestampMs - lastPeakTime) > REFRACTORY_MS) {
       if (lastPeakTime > 0) {
         const rr = timestampMs - lastPeakTime;
-        // Validazione fisiologica (40 - 150 BPM -> 400 - 1500 ms)
         if (rr >= 400 && rr <= 1500) {
-          // Filtro artefatti Kubios-like: scarta variazioni > 25% rispetto alla mediana recente
           if (rrIntervals.length >= 4) {
             const recent = rrIntervals.slice(-5).sort((a, b) => a - b);
             const med = recent[Math.floor(recent.length / 2)];
@@ -208,7 +195,7 @@
         }
       }
       lastPeakTime = timestampMs;
-      adaptiveThreshold = envState * 1.35; // Innalza soglia dopo il picco
+      adaptiveThreshold = envState * 1.35;
       gcgBuffer[gcgBuffer.length - 1].peak = true;
     }
 
@@ -236,13 +223,11 @@
     }
   }
 
-  // Calcolo completo delle metriche Kubios
   function computeHRVMetrics() {
     const N = rrIntervals.length;
     const meanRR = rrIntervals.reduce((a, b) => a + b, 0) / N;
     const meanHR = 60000 / meanRR;
 
-    // Differenze successive e SDNN
     let sumSqDiff = 0;
     let nn50 = 0;
     let sumSqDev = 0;
@@ -262,7 +247,6 @@
     const rmssd = Math.sqrt(sumSqDiff / (N - 1));
     const pnn50 = (nn50 / (N - 1)) * 100;
 
-    // Non-Lineare: Poincaré SD1 e SD2
     const meanDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
     const varDiff = diffs.reduce((a, b) => a + Math.pow(b - meanDiff, 2), 0) / (diffs.length - 1 || 1);
     const sd1 = Math.sqrt(0.5 * varDiff);
@@ -270,12 +254,10 @@
     const sd2 = Math.sqrt(Math.max(sd2Sq, 0.1));
     const sd21 = sd2 / (sd1 || 1);
 
-    // Baevsky's Stress Index (SI)
-    // Bin di 50 ms per trovare la Moda (Mo) e l'ampiezza della Moda (AMo %)
     const sorted = [...rrIntervals].sort((a, b) => a - b);
     const minRR = sorted[0];
     const maxRR = sorted[sorted.length - 1];
-    const mxDMn = Math.max((maxRR - minRR) / 1000, 0.05); // in secondi
+    const mxDMn = Math.max((maxRR - minRR) / 1000, 0.05);
 
     const bins = {};
     let maxBinCount = 0;
@@ -288,11 +270,10 @@
         modeBin = b;
       }
     }
-    const AMo = (maxBinCount / N) * 100; // in percentuale
+    const AMo = (maxBinCount / N) * 100;
     const MoSec = modeBin / 1000;
     const stressIndex = AMo / (2 * MoSec * mxDMn);
 
-    // Indici sintetici PNS e SNS (normalizzati rispetto ai valori medi a riposo: MeanRR=926ms, RMSSD=42ms, SD1=29ms, SI=100)
     const zRR = (meanRR - 926) / 90;
     const zRMSSD = (rmssd - 42) / 15;
     const zSD1 = (sd1 - 29) / 12;
@@ -303,7 +284,6 @@
     const zSD2 = (50 - sd2) / 18;
     const snsIndex = (zHR + zSI + zSD2) / 3;
 
-    // Aggiornamento UI Dominio del Tempo e Non-Lineare
     document.getElementById('mMeanRR').textContent = `${meanRR.toFixed(1)} ms`;
     document.getElementById('mMeanHR').textContent = `${meanHR.toFixed(1)} bpm`;
     document.getElementById('mRMSSD').textContent = `${rmssd.toFixed(1)} ms`;
@@ -314,20 +294,17 @@
     document.getElementById('mSD21').textContent = sd21.toFixed(2);
     document.getElementById('mSI').textContent = stressIndex.toFixed(1);
 
-    // Barre PNS e SNS (scala da -3 a +3 mappata su 5% - 95%)
     document.getElementById('pnsVal').textContent = (pnsIndex >= 0 ? '+' : '') + pnsIndex.toFixed(2);
     document.getElementById('snsVal').textContent = (snsIndex >= 0 ? '+' : '') + snsIndex.toFixed(2);
-    const pnsPct = Math.min(95, Math.max(5, 50 + pnsIndex * 18));
-    const snsPct = Math.min(95, Math.max(5, 50 + snsIndex * 18));
-    document.getElementById('pnsBar').style.width = `${pnsPct}%`;
-    document.getElementById('snsBar').style.width = `${snsPct}%`;
+    document.getElementById('pnsBar').style.width = `${Math.min(95, Math.max(5, 50 + pnsIndex * 18))}%`;
+    document.getElementById('snsBar').style.width = `${Math.min(95, Math.max(5, 50 + snsIndex * 18))}%`;
 
     const stateEl = document.getElementById('mState');
     if (pnsIndex - snsIndex > 0.4) {
-      stateEl.textContent = 'Dominanza Parasimpatica (Recupero/Vagale)';
+      stateEl.textContent = 'Dominanza Parasimpatica (Recupero)';
       stateEl.className = 'tag-pns';
     } else if (snsIndex - pnsIndex > 0.4) {
-      stateEl.textContent = 'Dominanza Simpatica (Stress/Attivazione)';
+      stateEl.textContent = 'Dominanza Simpatica (Stress)';
       stateEl.className = 'tag-sns';
     } else {
       stateEl.textContent = 'Equilibrio Simpatovagale';
@@ -336,15 +313,13 @@
 
     drawPoincare(meanRR, sd1, sd2);
 
-    // Dominio della Frequenza (richiede almeno ~20 secondi di dati per stima spettrale)
     if (rrTimestamps[rrTimestamps.length - 1] >= 15000) {
       computeFrequencyDomain();
     }
   }
 
-  // Ricampionamento a 4 Hz + Finestra di Hann + DFT per bande VLF, LF, HF
   function computeFrequencyDomain() {
-    const fs = 4; // 4 Hz standard Kubios
+    const fs = 4;
     const stepMs = 1000 / fs;
     const totalDuration = rrTimestamps[rrTimestamps.length - 1];
     const startT = rrTimestamps[0];
@@ -366,7 +341,6 @@
     const M = resampled.length;
     if (M < 32) return;
 
-    // Rimozione media (detrending) e applicazione finestra di Hann
     const mean = resampled.reduce((a, b) => a + b, 0) / M;
     const windowed = new Float64Array(M);
     let winPower = 0;
@@ -376,7 +350,6 @@
       winPower += w * w;
     }
 
-    // Calcolo PSD tramite DFT sulle frequenze di interesse (0.003 - 0.45 Hz)
     const df = fs / M;
     let vlf = 0, lf = 0, hf = 0;
     const spectrum = [];
@@ -412,7 +385,6 @@
     drawPSD(spectrum);
   }
 
-  // Funzioni grafiche Canvas
   function drawGCG() {
     const ctx = gcgCanvas.getContext('2d');
     const w = gcgCanvas.width, h = gcgCanvas.height;
@@ -435,7 +407,6 @@
     });
     ctx.stroke();
 
-    // Disegna marker sui picchi rilevati
     ctx.fillStyle = '#f43f5e';
     gcgBuffer.forEach((p, i) => {
       if (p.peak) {
@@ -511,7 +482,6 @@
     const mapX = v => 30 + ((v - min) / span) * (w - 60);
     const mapY = v => h - 25 - ((v - min) / span) * (h - 50);
 
-    // Linea di identità
     ctx.strokeStyle = '#334155';
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -520,7 +490,6 @@
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Punti (RR_n, RR_n+1)
     ctx.fillStyle = '#38bdf8';
     for (let i = 0; i < rrIntervals.length - 1; i++) {
       const x = mapX(rrIntervals[i]);
@@ -530,7 +499,6 @@
       ctx.fill();
     }
 
-    // Ellisse SD1/SD2 centrata su (meanRR, meanRR)
     const cx = mapX(meanRR);
     const cy = mapY(meanRR);
     const scaleX = (w - 60) / span;
@@ -548,15 +516,12 @@
     ctx.restore();
   }
 
-  // Gestione Sensore Giroscopio Reale
   function handleMotion(event) {
     if (!isRunning || mode !== 'gyro') return;
+    if (isStabilizing) return;
     const rot = event.rotationRate;
     if (!rot) return;
-    const gx = rot.alpha || 0;
-    const gy = rot.beta || 0;
-    const gz = rot.gamma || 0;
-    processGcgSample(gx, gy, gz, performance.now());
+    processGcgSample(rot.alpha || 0, rot.beta || 0, rot.gamma || 0, performance.now());
   }
 
   async function startGyro() {
@@ -564,50 +529,61 @@
       try {
         const perm = await DeviceMotionEvent.requestPermission();
         if (perm !== 'granted') {
-          statusText.textContent = 'Errore: Permesso giroscopio negato dal sistema.';
+          statusText.textContent = 'Errore: Permesso giroscopio negato.';
           return;
         }
       } catch (err) {
-        statusText.textContent = 'Errore richiesta permessi sensore (richiesto HTTPS).';
+        statusText.textContent = 'Errore permessi sensore (richiesto HTTPS).';
         return;
       }
     }
+
     resetSession();
     isRunning = true;
     mode = 'gyro';
-    startTime = Date.now();
-    window.addEventListener('devicemotion', handleMotion, true);
-    statusText.textContent = 'Acquisizione Giroscopio attiva — Mantenere il telefono fermo sullo sterno.';
+    isStabilizing = true;
+
+    let countdown = 60;
+    statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
     updateButtons();
+
+    stabilizationTimer = setInterval(() => {
+      countdown--;
+      if (countdown > 0) {
+        statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
+      } else {
+        clearInterval(stabilizationTimer);
+        isStabilizing = false;
+        startTime = Date.now();
+        statusText.textContent = 'Acquisizione Giroscopio attiva — Rilasciare il corpo e mantenere la posizione.';
+      }
+    }, 1000);
+
+    window.addEventListener('devicemotion', handleMotion, true);
   }
 
-  // Simulatore fisiologico GCG (modula RSA a 0.25 Hz + Mayer waves a 0.10 Hz)
   function startSimulation() {
     resetSession();
     isRunning = true;
     mode = 'sim';
     startTime = Date.now();
-    statusText.textContent = 'Simulazione GCG attiva (Modello RSA 0.25 Hz + Onde di Mayer 0.10 Hz).';
+    statusText.textContent = 'Simulazione GCG attiva.';
     updateButtons();
 
     let simTime = 0;
     let nextBeatTime = 850;
     simTimer = setInterval(() => {
-      simTime += 20; // 50 Hz (20 ms)
+      simTime += 20;
       const tSec = simTime / 1000;
-
       let gx = (Math.random() - 0.5) * 0.04;
       let gy = (Math.random() - 0.5) * 0.04;
 
-      // Impulso sintetico quando scatta il battito
       if (simTime >= nextBeatTime) {
         gx += 1.4;
         gy += 1.1;
-        // Modulazione autonomica: base 860ms + HF (respiro 0.25Hz) + LF (0.10Hz)
         const hfMod = 48 * Math.sin(2 * Math.PI * 0.25 * tSec);
         const lfMod = 32 * Math.sin(2 * Math.PI * 0.10 * tSec);
-        const jitter = (Math.random() - 0.5) * 14;
-        const nextRR = 860 + hfMod + lfMod + jitter;
+        const nextRR = 860 + hfMod + lfMod + (Math.random() - 0.5) * 14;
         nextBeatTime = simTime + nextRR;
       }
       processGcgSample(gx, gy, 0.02, simTime);
@@ -616,6 +592,8 @@
 
   function stopAcquisition() {
     isRunning = false;
+    isStabilizing = false;
+    if (stabilizationTimer) clearInterval(stabilizationTimer);
     window.removeEventListener('devicemotion', handleMotion, true);
     if (simTimer) clearInterval(simTimer);
     statusText.textContent = 'Acquisizione terminata.';
@@ -638,10 +616,9 @@
 
   function exportCSV() {
     if (rrIntervals.length === 0) {
-      alert('Nessun intervallo RR registrato da esportare.');
+      alert('Nessun intervallo RR registrato.');
       return;
     }
-    // Formato colonna singola in ms (compatibile direttamente con Kubios HRV)
     const content = rrIntervals.join('\n');
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
