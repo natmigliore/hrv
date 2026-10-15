@@ -494,4 +494,176 @@
       ctx.lineTo(x1, y1);
       ctx.lineTo(x1, h);
       ctx.closePath();
- 
+      ctx.fill();
+    });
+  }
+
+  function drawPoincare(meanRR, sd1, sd2) {
+    const ctx = poincareCanvas.getContext('2d');
+    const w = poincareCanvas.width, h = poincareCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+    if (rrIntervals.length < 4) return;
+
+    const min = Math.min(...rrIntervals) - 50;
+    const max = Math.max(...rrIntervals) + 50;
+    const span = Math.max(max - min, 200);
+
+    const mapX = v => 30 + ((v - min) / span) * (w - 60);
+    const mapY = v => h - 25 - ((v - min) / span) * (h - 50);
+
+    // Linea di identità
+    ctx.strokeStyle = '#334155';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(mapX(min), mapY(min));
+    ctx.lineTo(mapX(max), mapY(max));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Punti (RR_n, RR_n+1)
+    ctx.fillStyle = '#38bdf8';
+    for (let i = 0; i < rrIntervals.length - 1; i++) {
+      const x = mapX(rrIntervals[i]);
+      const y = mapY(rrIntervals[i + 1]);
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Ellisse SD1/SD2 centrata su (meanRR, meanRR)
+    const cx = mapX(meanRR);
+    const cy = mapY(meanRR);
+    const scaleX = (w - 60) / span;
+    const scaleY = (h - 50) / span;
+    const scale = (scaleX + scaleY) / 2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-Math.PI / 4);
+    ctx.strokeStyle = '#f43f5e';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, sd2 * scale, sd1 * scale, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Gestione Sensore Giroscopio Reale
+  function handleMotion(event) {
+    if (!isRunning || mode !== 'gyro') return;
+    const rot = event.rotationRate;
+    if (!rot) return;
+    const gx = rot.alpha || 0;
+    const gy = rot.beta || 0;
+    const gz = rot.gamma || 0;
+    processGcgSample(gx, gy, gz, performance.now());
+  }
+
+  async function startGyro() {
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      try {
+        const perm = await DeviceMotionEvent.requestPermission();
+        if (perm !== 'granted') {
+          statusText.textContent = 'Errore: Permesso giroscopio negato dal sistema.';
+          return;
+        }
+      } catch (err) {
+        statusText.textContent = 'Errore richiesta permessi sensore (richiesto HTTPS).';
+        return;
+      }
+    }
+    resetSession();
+    isRunning = true;
+    mode = 'gyro';
+    startTime = Date.now();
+    window.addEventListener('devicemotion', handleMotion, true);
+    statusText.textContent = 'Acquisizione Giroscopio attiva — Mantenere il telefono fermo sullo sterno.';
+    updateButtons();
+  }
+
+  // Simulatore fisiologico GCG (modula RSA a 0.25 Hz + Mayer waves a 0.10 Hz)
+  function startSimulation() {
+    resetSession();
+    isRunning = true;
+    mode = 'sim';
+    startTime = Date.now();
+    statusText.textContent = 'Simulazione GCG attiva (Modello RSA 0.25 Hz + Onde di Mayer 0.10 Hz).';
+    updateButtons();
+
+    let simTime = 0;
+    let nextBeatTime = 850;
+    simTimer = setInterval(() => {
+      simTime += 20; // 50 Hz (20 ms)
+      const tSec = simTime / 1000;
+
+      let gx = (Math.random() - 0.5) * 0.04;
+      let gy = (Math.random() - 0.5) * 0.04;
+
+      // Impulso sintetico quando scatta il battito
+      if (simTime >= nextBeatTime) {
+        gx += 1.4;
+        gy += 1.1;
+        // Modulazione autonomica: base 860ms + HF (respiro 0.25Hz) + LF (0.10Hz)
+        const hfMod = 48 * Math.sin(2 * Math.PI * 0.25 * tSec);
+        const lfMod = 32 * Math.sin(2 * Math.PI * 0.10 * tSec);
+        const jitter = (Math.random() - 0.5) * 14;
+        const nextRR = 860 + hfMod + lfMod + jitter;
+        nextBeatTime = simTime + nextRR;
+      }
+      processGcgSample(gx, gy, 0.02, simTime);
+    }, 20);
+  }
+
+  function stopAcquisition() {
+    isRunning = false;
+    window.removeEventListener('devicemotion', handleMotion, true);
+    if (simTimer) clearInterval(simTimer);
+    statusText.textContent = 'Acquisizione terminata.';
+    updateButtons();
+  }
+
+  function resetSession() {
+    stopAcquisition();
+    gcgBuffer.length = 0;
+    rrIntervals.length = 0;
+    rrTimestamps.length = 0;
+    lastPeakTime = 0;
+    sampleInfo.textContent = 'Battiti validi (NN): 0 | Durata: 00:00';
+    statusText.textContent = 'Stato: Pronto.';
+    ['gcgCanvas', 'rrCanvas', 'psdCanvas', 'poincareCanvas'].forEach(id => {
+      const c = document.getElementById(id);
+      c.getContext('2d').clearRect(0, 0, c.width, c.height);
+    });
+  }
+
+  function exportCSV() {
+    if (rrIntervals.length === 0) {
+      alert('Nessun intervallo RR registrato da esportare.');
+      return;
+    }
+    // Formato colonna singola in ms (compatibile direttamente con Kubios HRV)
+    const content = rrIntervals.join('\n');
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gyro_rr_kubios_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function updateButtons() {
+    document.getElementById('btnStartGyro').disabled = isRunning;
+    document.getElementById('btnStartSim').disabled = isRunning;
+    document.getElementById('btnStop').disabled = !isRunning;
+  }
+
+  document.getElementById('btnStartGyro').addEventListener('click', startGyro);
+  document.getElementById('btnStartSim').addEventListener('click', startSimulation);
+  document.getElementById('btnStop').addEventListener('click', stopAcquisition);
+  document.getElementById('btnReset').addEventListener('click', resetSession);
+  document.getElementById('btnExport').addEventListener('click', exportCSV);
+})();
+</script>
+</body>
+</html>
