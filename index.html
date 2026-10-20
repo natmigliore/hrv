@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>GyroSCG HRV - Architettura Kubios Completa</title>
+  <title>GyroSCG HRV</title>
   <style>
     :root {
       --bg: #0b0f17;
       --panel: #151c28;
-      --panel-alt: #1c2536;
       --border: #2a364f;
       --text: #f1f5f9;
       --muted: #94a3b8;
@@ -26,7 +25,6 @@
     button { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 7px 11px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.8rem; transition: 0.15s; }
     button.primary { background: var(--accent); color: #042f1e; border-color: var(--accent); }
     button.sim { background: #3b82f6; color: #fff; border-color: #3b82f6; }
-    button.bench { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
     button.stop { background: var(--danger); color: #fff; border-color: var(--danger); }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
     .duration-selector, .age-input { display: flex; align-items: center; background: #070a10; border-radius: 6px; border: 1px solid var(--border); overflow: hidden; }
@@ -43,7 +41,6 @@
     canvas { width: 100%; height: 140px; background: #070a10; border-radius: 6px; display: block; }
     .poincare-canvas { height: 210px; }
 
-    /* Kubios Readiness Gauge */
     .readiness-box { text-align: center; padding: 6px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
     .readiness-score { font-size: 2.5rem; font-weight: 800; line-height: 1.1; }
     .readiness-label { font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
@@ -51,7 +48,6 @@
     .resting-summary { display: flex; justify-content: space-around; font-size: 0.9rem; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .resting-summary strong { font-size: 1.1rem; color: var(--text); }
 
-    /* Kubios ANS Bars */
     .kubios-bar-group { margin: 12px 0; }
     .kubios-bar-header { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--muted); margin-bottom: 5px; }
     .kubios-pill { background: #fff; color: #000; font-weight: 800; padding: 1px 8px; border-radius: 10px; font-size: 0.78rem; font-family: monospace; }
@@ -73,9 +69,9 @@
 <body>
 
 <header>
-  <h1>GyroSCG HRV <span style="font-size:0.78rem;color:var(--muted);font-weight:400;">| Motore Algoritmico Kubios</span></h1>
+  <h1>GyroSCG HRV</h1>
   <div class="controls">
-    <div class="age-input" title="Età anagrafica per calcolo Physiological Age">
+    <div class="age-input">
       <span>Età:</span>
       <input type="number" id="inputAge" value="53" min="18" max="100">
     </div>
@@ -86,7 +82,6 @@
     </div>
     <button id="btnStartSensors" class="primary">Avvia Sensori (60s Pre)</button>
     <button id="btnStartSim" class="sim">Simulazione</button>
-    <button id="btnBench" class="bench">Benchmark Kubios</button>
     <button id="btnStop" class="stop" disabled>Stop</button>
     <button id="btnReset">Reset</button>
     <button id="btnExport">Esporta CSV</button>
@@ -101,13 +96,12 @@
 
 <div class="status-bar">
   <span id="statusText">Stato: Pronto (Seleziona durata e premi Avvia Sensori)</span>
-  <span id="sampleInfo">Battiti (NN): 0 | Artefatti corretti: 0.0% | Durata: 00:00</span>
+  <span id="sampleInfo">Battiti (NN): 0 | Qualità: -- | Durata: 00:00</span>
 </div>
 
 <div class="grid">
-  <!-- Pannello Principale Stile Kubios Result -->
   <div class="card">
-    <h2>Kubios ANS &amp; Readiness Profile</h2>
+    <h2>Profilo Autonomico &amp; Readiness</h2>
     <div class="readiness-box">
       <div id="kReadiness" class="readiness-score">--%</div>
       <div class="readiness-label">READINESS</div>
@@ -119,7 +113,6 @@
       <div>RMSSD <strong id="kRMSSD">-- ms</strong></div>
     </div>
 
-    <!-- PNS Index -->
     <div class="kubios-bar-group">
       <div class="kubios-bar-header">
         <span>PNS index</span>
@@ -132,7 +125,6 @@
       </div>
     </div>
 
-    <!-- SNS Index -->
     <div class="kubios-bar-group">
       <div class="kubios-bar-header">
         <span>SNS index</span>
@@ -145,7 +137,6 @@
       </div>
     </div>
 
-    <!-- Physiological Age -->
     <div class="kubios-bar-group">
       <div class="kubios-bar-header">
         <span>Physiological age</span>
@@ -159,16 +150,15 @@
     </div>
   </div>
 
-  <!-- Tabella Completa HRV PARAMETERS (Ordine Kubios) -->
   <div class="card">
-    <h2>HRV PARAMETERS (Detrended λ=500)</h2>
+    <h2>HRV Parameters</h2>
     <table class="metrics-table">
       <tr><td>Mean RR</td><td id="mMeanRR">-- ms</td></tr>
-      <tr><td>SDNN (Detrended)</td><td id="mSDNN">-- ms</td></tr>
+      <tr><td>SDNN</td><td id="mSDNN">-- ms</td></tr>
       <tr><td>Poincaré SD1</td><td id="mSD1">-- ms</td></tr>
       <tr><td>Poincaré SD2</td><td id="mSD2">-- ms</td></tr>
-      <tr><td>Stress index (√Baevsky)</td><td id="mSI">--</td></tr>
-      <tr><td>Respiratory rate (EDR)</td><td id="mResp">-- breaths/min</td></tr>
+      <tr><td>Stress index</td><td id="mSI">--</td></tr>
+      <tr><td>Respiratory rate</td><td id="mResp">-- breaths/min</td></tr>
       <tr><td>LF power (0.04–0.15 Hz)</td><td id="mLF">-- ms²</td></tr>
       <tr><td>HF power (0.15–0.40 Hz)</td><td id="mHF">-- ms²</td></tr>
       <tr><td>LF power (n.u.)</td><td id="mLFnu">-- %</td></tr>
@@ -177,29 +167,27 @@
       <tr><td>pNN50 / VLF power</td><td id="mExtra">-- % / -- ms²</td></tr>
     </table>
     <div id="respBiasWarn" class="warn-box">
-      <strong>Nota Elettrofisiologica (Entrainment &lt; 9 atti/min):</strong> Frequenza respiratoria inferiore a 0.15 Hz. L'onda vagale RSA è migrata nella banda LF gonfiando il rapporto LF/HF per risonanza barocettiva (non per ipertono simpatico). Fare riferimento a PNS/SNS Index.
+      <strong>Nota Fisiologica (Entrainment &lt; 9 atti/min):</strong> Frequenza respiratoria inferiore a 0.15 Hz. L'onda vagale RSA si sposta nella banda LF alterando il rapporto LF/HF. Fare riferimento a PNS/SNS Index.
     </div>
   </div>
 
-  <!-- Segnale SCG+GCG & Tacogramma Detrendizzato -->
   <div class="card">
     <h2>Inviluppo Sistolico SCG+GCG <span id="instHR">-- BPM</span></h2>
     <canvas id="gcgCanvas" width="600" height="140"></canvas>
-    <h2 style="margin-top:12px;">Tacogramma RR &amp; Trend Smoothness Priors <span id="lastRR">-- ms</span></h2>
+    <h2 style="margin-top:12px;">Tacogramma RR &amp; Trend <span id="lastRR">-- ms</span></h2>
     <canvas id="rrCanvas" width="600" height="140"></canvas>
   </div>
 
-  <!-- Spettro PSD Welch & Poincaré Plot -->
   <div class="card">
-    <h2>Spettro Welch FFT (4 Hz Cubic Spline)</h2>
+    <h2>Spettro PSD Welch</h2>
     <canvas id="psdCanvas" width="600" height="115" style="height:115px;margin-bottom:10px;"></canvas>
-    <h2>Poincaré Plot ($RR_n$ vs $RR_{n+1}$) — Ellisse $SD_1/SD_2$</h2>
+    <h2>Poincaré Plot ($RR_n$ vs $RR_{n+1}$)</h2>
     <canvas id="poincareCanvas" class="poincare-canvas" width="400" height="180" style="height:180px;"></canvas>
   </div>
 </div>
 
 <div class="quality-footer">
-  <span>MEASUREMENT QUALITY (Lipponen-Tarvainen Artifact Filter)</span>
+  <span>MEASUREMENT QUALITY</span>
   <span id="qualityStatus" class="q-good">IN ATTESA</span>
 </div>
 
@@ -228,13 +216,10 @@
     let silentAudioCtx = null;
     let silentOsc = null;
 
-    // Buffer acquisizione meccanica
     const sensorBuffer = [];
-    const respWaveBuffer = [];
     const MAX_POINTS = 300;
     const rawRR = [];
 
-    // Stato filtri meccanici SCG/GCG
     let hpFast = 0, prevComb = 0, lpEnv = 0;
     let respLp = 0;
     let adaptiveThresh = 0.02;
@@ -252,9 +237,6 @@
     const psdCanvas = document.getElementById('psdCanvas');
     const poincareCanvas = document.getElementById('poincareCanvas');
 
-    // =========================================================================
-    // 1. PREVENZIONE STANDBY E SEGNALI ACUSTICI
-    // =========================================================================
     async function preventSleepOn() {
       if ('wakeLock' in navigator) {
         try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
@@ -295,11 +277,6 @@
       } catch (e) {}
     }
 
-    // =========================================================================
-    // 2. ALGORITMI MATEMATICI KUBIOS (SPLINE, SMOOTHNESS PRIORS, LIPPONEN)
-    // =========================================================================
-
-    // Interpolazione Spline Cubica Naturale
     function cubicSplineInterpolate(x, y, xi) {
       const n = x.length;
       if (n < 3) return xi.map(() => y[0] || 800);
@@ -344,17 +321,16 @@
       return result;
     }
 
-    // Risolutore Esatto Pentadiagonale LDL^T per Smoothness Priors: (I + lambda^2 * D2^T * D2) * trend = y
-    function smoothnessPriorsDetrend(y, lambda = 500) {
+    function smoothnessPriorsDetrend(y, lambda = 50) {
       const n = y.length;
       if (n < 6) {
         const m = y.reduce((a, b) => a + b, 0) / (n || 1);
         return { detrended: y.map(v => v - m), trend: y.map(() => m) };
       }
       const l2 = lambda * lambda;
-      const d0 = new Float64Array(n); // Diagonale principale
-      const d1 = new Float64Array(n); // 1a codiagonale
-      const d2 = new Float64Array(n); // 2a codiagonale
+      const d0 = new Float64Array(n);
+      const d1 = new Float64Array(n);
+      const d2 = new Float64Array(n);
 
       for (let i = 0; i < n; i++) {
         if (i === 0 || i === n - 1) d0[i] = 1 + l2;
@@ -369,7 +345,6 @@
         }
       }
 
-      // Fattorizzazione LDL^T per matrice simmetrica pentadiagonale
       const alpha = new Float64Array(n);
       const beta = new Float64Array(n);
       const gamma = new Float64Array(n);
@@ -394,7 +369,6 @@
         }
       }
 
-      // Sostituzione in avanti (Lz = y)
       const z = new Float64Array(n);
       z[0] = y[0];
       z[1] = y[1] - beta[0] * z[0];
@@ -402,7 +376,6 @@
         z[i] = y[i] - beta[i - 1] * z[i - 1] - gamma[i - 2] * z[i - 2];
       }
 
-      // Scalatura diagonale e sostituzione all'indietro (L^T * trend = z / alpha)
       const trend = new Float64Array(n);
       trend[n - 1] = z[n - 1] / alpha[n - 1];
       trend[n - 2] = z[n - 2] / alpha[n - 2] - beta[n - 2] * trend[n - 1];
@@ -417,8 +390,7 @@
       return { detrended, trend };
     }
 
-    // Correzione Artefatti di Lipponen & Tarvainen (Deviazione Interquartile su dRR + Spline)
-    function lipponenTarvainenFilter(rrSeries) {
+    function artifactFilter(rrSeries) {
       const n = rrSeries.length;
       if (n < 8) {
         const t = [];
@@ -435,7 +407,6 @@
       let artifactCount = 0;
 
       for (let i = 1; i < n; i++) {
-        // Finestra locale per stimare la deviazione interquartile QD di dRR e la mediana RR
         const start = Math.max(1, i - 15);
         const end = Math.min(n - 1, i + 15);
         const winDRR = [];
@@ -449,8 +420,8 @@
 
         const q1 = winDRR[Math.floor(winDRR.length * 0.25)];
         const q3 = winDRR[Math.floor(winDRR.length * 0.75)];
-        const qd = Math.max((q3 - q1) / 2, 4.0); // Deviazione quartile minima 4 ms
-        const th1 = 5.2 * qd; // Coefficiente standard di Lipponen & Tarvainen (alpha = 5.2)
+        const qd = Math.max((q3 - q1) / 2, 4.0);
+        const th1 = 5.2 * qd;
 
         const medRR = winRR[Math.floor(winRR.length * 0.5)];
         const mRR = rrSeries[i] - medRR;
@@ -461,7 +432,6 @@
         }
       }
 
-      // Costruzione asse temporale e sostituzione tramite Spline Cubica dei punti anomali
       const rawT = new Float64Array(n);
       let sumT = 0;
       const validX = [];
@@ -497,26 +467,17 @@
       return { cleanRR, cleanT, artifactPct };
     }
 
-    // =========================================================================
-    // 3. FUSIONE SENSORIALE SCG+GCG CON PEAK DETECTOR SUB-CAMPIONE
-    // =========================================================================
     function processFusedSample(ax, ay, az, gx, gy, gz, timestampMs) {
-      // Onda meccanica respiratoria diretta a bassissima frequenza
       const rawChest = az + 0.5 * gx;
       respLp = 0.96 * respLp + 0.04 * rawChest;
-      respWaveBuffer.push({ t: timestampMs, v: respLp });
-      if (respWaveBuffer.length > 1500) respWaveBuffer.shift();
 
-      // Energia sistolica combinata SCG + GCG
       const scgMag = Math.sqrt(ax * ax + ay * ay + az * az);
       const gcgMag = Math.sqrt(gx * gx + gy * gy + 0.4 * gz * gz);
       const combined = 0.65 * scgMag + 0.35 * gcgMag;
 
-      // Passa-alto per rimuovere il respiro dall'onda d'urto aortica
       hpFast = 0.86 * (hpFast + combined - prevComb);
       prevComb = combined;
 
-      // Inviluppo energetico smussato (integra il complesso valvolare AO evitando doppi picchi)
       const rect = hpFast * hpFast;
       lpEnv = 0.78 * lpEnv + 0.22 * Math.sqrt(rect);
 
@@ -526,7 +487,6 @@
       adaptiveThresh = 0.988 * adaptiveThresh + 0.012 * (lpEnv * 1.48);
       const activeThresh = Math.max(adaptiveThresh, 0.009);
 
-      // Periodo refrattario dinamico (blocca l'onda diastolica S2/AC)
       let dynamicRefractory = 460;
       if (rawRR.length >= 4) {
         const rec = rawRR.slice(-6).sort((a, b) => a - b);
@@ -538,10 +498,8 @@
         armedForPeak = true;
       }
 
-      // Individua il massimo locale esatto (inversione di pendenza) con raffinamento parabolico
       if (armedForPeak && prevSampleVal >= lpEnv && prevSampleVal > prevPrevSampleVal && prevSampleVal > activeThresh) {
         if ((prevSampleTime - lastPeakTime) > dynamicRefractory) {
-          // Interpolazione parabolica a 3 punti per precisione al millisecondo
           const denom = prevPrevSampleVal - 2 * prevSampleVal + lpEnv;
           const deltaSample = Math.abs(denom) > 1e-7 ? 0.5 * (prevPrevSampleVal - lpEnv) / denom : 0;
           const dt = Math.max(5, Math.min(30, timestampMs - prevSampleTime));
@@ -568,9 +526,6 @@
       drawSignal();
     }
 
-    // =========================================================================
-    // 4. MOTORE DI CALCOLO KUBIOS HRV COMPLETO
-    // =========================================================================
     function updateDashboard() {
       if (rawRR.length === 0) return;
 
@@ -578,8 +533,7 @@
       document.getElementById('instHR').textContent = `${Math.round(60000 / lastVal)} BPM`;
       document.getElementById('lastRR').textContent = `${lastVal} ms`;
 
-      // 1. Filtro Artefatti di Lipponen & Tarvainen + Spline Cubica
-      const { cleanRR, cleanT, artifactPct } = lipponenTarvainenFilter(rawRR);
+      const { cleanRR, cleanT, artifactPct } = artifactFilter(rawRR);
       const N = cleanRR.length;
 
       const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
@@ -589,10 +543,10 @@
 
       const qEl = document.getElementById('qualityStatus');
       if (artifactPct <= 5.0) {
-        qEl.textContent = `GOOD (${artifactPct.toFixed(1)}% artifacts)`;
+        qEl.textContent = `GOOD (${artifactPct.toFixed(1)}%)`;
         qEl.className = 'q-good';
       } else {
-        qEl.textContent = `LOW (${artifactPct.toFixed(1)}% artifacts)`;
+        qEl.textContent = `LOW (${artifactPct.toFixed(1)}%)`;
         qEl.className = 'q-low';
       }
 
@@ -601,20 +555,16 @@
         return;
       }
 
-      // 2. Detrending Smoothness Priors sulla serie RR
       const { detrended: rrDetrended, trend: rrTrend } = smoothnessPriorsDetrend(cleanRR, 50);
       drawRR(cleanRR, rrTrend);
 
-      // 3. Dominio del Tempo
       const meanRR = cleanRR.reduce((a, b) => a + b, 0) / N;
       const meanHR = 60000 / meanRR;
 
-      // SDNN calcolato sul segnale detrendizzato (come da specifica Kubios)
       let sumSqDet = 0;
       for (let i = 0; i < N; i++) sumSqDet += rrDetrended[i] * rrDetrended[i];
       const sdnn = Math.sqrt(sumSqDet / (N - 1));
 
-      // Differenze successive per RMSSD, pNN50 e Poincaré SD1
       let sumSqDiff = 0;
       let nn50 = 0;
       const diffs = new Float64Array(N - 1);
@@ -627,8 +577,6 @@
       const rmssd = Math.sqrt(sumSqDiff / (N - 1));
       const pnn50 = (nn50 / (N - 1)) * 100;
 
-      // 4. Geometria di Poincaré (SD1 e SD2 esatti)
-      // Identità matematica Kubios: SD1^2 = 0.5 * SDSD^2
       const meanDiff = diffs.reduce((a, b) => a + b, 0) / (N - 1);
       let varDiff = 0;
       for (let i = 0; i < N - 1; i++) varDiff += Math.pow(diffs[i] - meanDiff, 2);
@@ -640,16 +588,13 @@
       const sd1Pct = (sd1 / (sd1 + sd2)) * 100;
       const sd2Pct = (sd2 / (sd1 + sd2)) * 100;
 
-      // 5. Stress Index di Baevsky (Radice Quadrata Kubios su serie stazionaria)
       const statRR = new Float64Array(N);
       for (let i = 0; i < N; i++) statRR[i] = meanRR + rrDetrended[i];
       const sorted = Array.from(statRR).sort((a, b) => a - b);
-      // Esclusione code estreme 1% se N > 50 per stabilità istogramma
       const lowIdx = N > 50 ? Math.floor(N * 0.01) : 0;
       const highIdx = N > 50 ? Math.ceil(N * 0.99) - 1 : N - 1;
       const mxDMnSec = Math.max((sorted[highIdx] - sorted[lowIdx]) / 1000, 0.03);
 
-      // Istogramma con bin di larghezza 50 ms centrato sulla mediana
       const MoSec = sorted[Math.floor(N / 2)] / 1000;
       let maxCount = 0;
       for (let center = sorted[0]; center <= sorted[N - 1]; center += 10) {
@@ -661,10 +606,8 @@
       }
       const AMoPct = (maxCount / N) * 100;
       const baevskyRaw = AMoPct / (2 * MoSec * mxDMnSec);
-      const stressIndex = Math.sqrt(baevskyRaw); // Linearizzazione Kubios (radice quadrata)
+      const stressIndex = Math.sqrt(baevskyRaw);
 
-      // 6. Indici Sintetici Proprietari Kubios (PNS Index, SNS Index, Physiological Age, Readiness)
-      // Z-score calibrati sulle distribuzioni normative di popolazione Kubios
       const zMeanRR = (meanRR - 926) / 98;
       const zRMSSD = (Math.log(Math.max(rmssd, 2)) - Math.log(32)) / 0.50;
       const zSD1Pct = (sd1Pct - 39.5) / 10.2;
@@ -675,16 +618,13 @@
       const zSD2Pct = (sd2Pct - 60.5) / 7.2;
       const snsIndex = (zMeanHR + zSI + zSD2Pct) / 3;
 
-      // Physiological Age & Readiness (%)
       const chronoAge = parseFloat(document.getElementById('inputAge').value) || 53;
       document.getElementById('kChronoAgeLabel').textContent = chronoAge;
       const physioAge = Math.round(Math.max(18, Math.min(95, chronoAge - pnsIndex * 2.2 + snsIndex * 1.3)));
 
-      // Funzione di trasferimento Readiness (%) 0 - 100%
       const netAutonomic = 0.65 * pnsIndex - 0.35 * snsIndex;
       const readinessPct = Math.round(Math.max(5, Math.min(100, 74 + netAutonomic * 26)));
 
-      // 7. Aggiornamento UI Kubios Card
       document.getElementById('kReadiness').textContent = `${readinessPct}%`;
       const badge = document.getElementById('kReadinessBadge');
       if (readinessPct >= 80) {
@@ -712,13 +652,11 @@
       document.getElementById('kSnsPill').textContent = (snsIndex >= 0 ? '+' : '') + snsIndex.toFixed(2);
       document.getElementById('kAgePill').textContent = physioAge;
 
-      // Mappatura barre Kubios (-3 SD a +3 SD -> 5% a 95%)
       document.getElementById('kPnsBar').style.width = `${Math.min(96, Math.max(4, 50 + pnsIndex * 16))}%`;
       document.getElementById('kSnsBar').style.width = `${Math.min(96, Math.max(4, 50 + snsIndex * 16))}%`;
       const ageDiff = physioAge - chronoAge;
       document.getElementById('kAgeBar').style.width = `${Math.min(96, Math.max(4, 50 + ageDiff * 2.5))}%`;
 
-      // Aggiornamento Tabella Parametri
       document.getElementById('mMeanRR').textContent = `${meanRR.toFixed(2)} ms`;
       document.getElementById('mSDNN').textContent = `${sdnn.toFixed(2)} ms`;
       document.getElementById('mSD1').textContent = `${sd1.toFixed(2)} ms`;
@@ -727,14 +665,13 @@
 
       drawPoincare(cleanRR, meanRR, sd1, sd2);
 
-      // 8. Dominio della Frequenza (Spline 4 Hz + Smoothness Priors λ=500 + Welch PSD + EDR)
       if (cleanT[cleanT.length - 1] >= 12000) {
-        computeKubiosSpectrum(cleanT, cleanRR, pnn50);
+        computeSpectrum(cleanT, cleanRR, pnn50);
       }
     }
 
-    function computeKubiosSpectrum(cleanT, cleanRR, pnn50) {
-      const fs = 4; // 4 Hz Cubic Spline Resampling
+    function computeSpectrum(cleanT, cleanRR, pnn50) {
+      const fs = 4;
       const stepMs = 1000 / fs;
       const tStart = cleanT[0];
       const tEnd = cleanT[cleanT.length - 1];
@@ -743,17 +680,13 @@
       for (let t = tStart; t <= tEnd; t += stepMs) gridT.push(t);
       if (gridT.length < 32) return;
 
-      // Ricampionamento a 4 Hz tramite Spline Cubica
       const resampled4Hz = cubicSplineInterpolate(cleanT, cleanRR, gridT);
+      const { detrended } = smoothnessPriorsDetrend(resampled4Hz, 50);
 
-      // Detrending Smoothness Priors con lambda = 500 (taglio ~0.035 Hz)
-      const { detrended } = smoothnessPriorsDetrend(resampled4Hz, 500);
-
-      // Calcolo PSD tramite Metodo di Welch (finestre sovrapposte al 50% con Hann window)
       const totalSamples = detrended.length;
       const winLen = Math.min(256, Math.pow(2, Math.floor(Math.log2(totalSamples))));
       const stepWin = Math.max(16, Math.floor(winLen / 2));
-      const nfft = 512; // Zero-padding per risoluzione spettrale fine (df = 4 / 512 = 0.0078125 Hz)
+      const nfft = 512;
       const df = fs / nfft;
 
       const psdAccum = new Float64Array(nfft / 2);
@@ -798,8 +731,6 @@
         else if (f >= 0.04 && f < 0.15) lf += power;
         else if (f >= 0.15 && f <= 0.40) hf += power;
 
-        // Ricerca picco respiratorio EDR (tra 0.10 Hz e 0.40 Hz -> 6 - 24 breaths/min)
-        // Peso privilegiato alla banda respiratoria fisiologica (0.15 - 0.35 Hz)
         if (f >= 0.11 && f <= 0.40) {
           const weight = f >= 0.15 ? 1.35 : 0.75;
           if (psd * weight > maxRespPsd) {
@@ -823,16 +754,12 @@
       document.getElementById('mLFHF').textContent = lfhf.toFixed(2);
       document.getElementById('mExtra').textContent = `${pnn50.toFixed(1)} % / ${vlf.toFixed(0)} ms²`;
 
-      // Controllo Entrainment Bradipnoico (< 9 atti/min = 0.15 Hz)
       const warnBox = document.getElementById('respBiasWarn');
       warnBox.style.display = respRate < 9.0 ? 'block' : 'none';
 
       drawPSD(spectrum);
     }
 
-    // =========================================================================
-    // 5. GRAFICI CANVAS
-    // =========================================================================
     function drawSignal() {
       const ctx = gcgCanvas.getContext('2d');
       const w = gcgCanvas.width, h = gcgCanvas.height;
@@ -878,7 +805,6 @@
       const max = Math.max(...viewRR) + 20;
       const range = Math.max(max - min, 60);
 
-      // Segnale RR pulito
       ctx.strokeStyle = '#10b981';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
@@ -890,7 +816,6 @@
       });
       ctx.stroke();
 
-      // Trend lento Smoothness Priors rimosso
       ctx.strokeStyle = '#f97316';
       ctx.lineWidth = 1.4;
       ctx.setLineDash([4, 4]);
@@ -974,9 +899,6 @@
       ctx.restore();
     }
 
-    // =========================================================================
-    // 6. GESTIONE EVENTI HARDWARE, CONTO ALLA ROVESCIA 60s E BENCHMARK KUBIOS
-    // =========================================================================
     let lastAcc = { x: 0, y: 0, z: 0 };
     let lastGyro = { alpha: 0, beta: 0, gamma: 0 };
 
@@ -1034,7 +956,7 @@
           countdownBanner.style.display = 'none';
           isStabilizing = false;
           startTime = Date.now();
-          playBeep(880, 450); // Beep acuto: inizio misura
+          playBeep(880, 450);
           statusText.textContent = 'Acquisizione SCG+GCG attiva — Mantenere l\'immobilità.';
 
           if (selectedDurationMinutes !== 'manual') {
@@ -1047,26 +969,6 @@
       }, 1000);
 
       window.addEventListener('devicemotion', handleMotion, true);
-    }
-
-    // Benchmark Matematico Calibrato sullo Screenshot Kubios (HR 80, RMSSD 10ms, LF/HF 11.08, Readiness 22%)
-    function runKubiosBenchmark() {
-      resetSession();
-      startTime = Date.now() - 180000;
-      statusText.textContent = 'Benchmark Kubios caricato (Replica profilo HR 80 bpm, RMSSD 10 ms, SI 18.79).';
-
-      // Generazione deterministica di 240 battiti (3 minuti a Mean RR = 753.17 ms)
-      // con modulazione Mayer LF (0.095 Hz) e RSA HF (0.221 Hz = 13.26 breaths/min) che produce SD1=7.22ms, SD2=26.31ms
-      const N = 240;
-      let tSec = 0;
-      for (let i = 0; i < N; i++) {
-        const lfWave = 35.2 * Math.sin(2 * Math.PI * 0.095 * tSec);
-        const hfWave = 10.6 * Math.sin(2 * Math.PI * 0.2207 * tSec);
-        const rr = 753.17 + lfWave + hfWave;
-        rawRR.push(rr);
-        tSec += rr / 1000;
-      }
-      updateDashboard();
     }
 
     async function startSimulation() {
@@ -1090,7 +992,7 @@
       let simTime = 0;
       let nextBeatTime = 800;
       simTimer = setInterval(() => {
-        simTime += 10; // 100 Hz
+        simTime += 10;
         const tSec = simTime / 1000;
         let ax = (Math.random() - 0.5) * 0.008;
         let ay = (Math.random() - 0.5) * 0.008;
@@ -1118,7 +1020,7 @@
       window.removeEventListener('devicemotion', handleMotion, true);
       if (simTimer) clearInterval(simTimer);
       preventSleepOff();
-      playBeep(440, 650); // Beep grave: fine misura
+      playBeep(440, 650);
       if (!statusText.textContent.includes('completata')) {
         statusText.textContent = 'Acquisizione terminata.';
       }
@@ -1128,11 +1030,10 @@
     function resetSession() {
       stopAcquisition();
       sensorBuffer.length = 0;
-      respWaveBuffer.length = 0;
       rawRR.length = 0;
       lastPeakTime = 0;
       armedForPeak = false;
-      sampleInfo.textContent = 'Battiti (NN): 0 | Artefatti corretti: 0.0% | Durata: 00:00';
+      sampleInfo.textContent = 'Battiti (NN): 0 | Qualità: -- | Durata: 00:00';
       statusText.textContent = 'Stato: Pronto.';
       document.getElementById('respBiasWarn').style.display = 'none';
       ['gcgCanvas', 'rrCanvas', 'psdCanvas', 'poincareCanvas'].forEach(id => {
@@ -1146,13 +1047,13 @@
         alert('Nessun intervallo RR registrato.');
         return;
       }
-      const { cleanRR } = lipponenTarvainenFilter(rawRR);
+      const { cleanRR } = artifactFilter(rawRR);
       const content = cleanRR.map(v => Math.round(v)).join('\n');
       const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `kubios_rr_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+      a.download = `hrv_export_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     }
@@ -1160,13 +1061,11 @@
     function updateButtons() {
       document.getElementById('btnStartSensors').disabled = isRunning;
       document.getElementById('btnStartSim').disabled = isRunning;
-      document.getElementById('btnBench').disabled = isRunning;
       document.getElementById('btnStop').disabled = !isRunning;
     }
 
     document.getElementById('btnStartSensors').addEventListener('click', startSensors);
     document.getElementById('btnStartSim').addEventListener('click', startSimulation);
-    document.getElementById('btnBench').addEventListener('click', runKubiosBenchmark);
     document.getElementById('btnStop').addEventListener('click', stopAcquisition);
     document.getElementById('btnReset').addEventListener('click', resetSession);
     document.getElementById('btnExport').addEventListener('click', exportCSV);
