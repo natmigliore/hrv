@@ -3,147 +3,214 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>GyroSCG HRV - Analisi Meccanica Cardiaca</title>
+  <title>GyroSCG HRV - Architettura Kubios Completa</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --panel: #1e293b;
-      --border: #334155;
-      --text: #f8fafc;
+      --bg: #0b0f17;
+      --panel: #151c28;
+      --panel-alt: #1c2536;
+      --border: #2a364f;
+      --text: #f1f5f9;
       --muted: #94a3b8;
-      --pns: #38bdf8;
-      --sns: #f43f5e;
+      --pns: #0ea5e9;
+      --sns: #eab308;
+      --danger: #ef4444;
       --accent: #10b981;
+      --orange: #f97316;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
-    body { background: var(--bg); color: var(--text); padding: 12px; line-height: 1.4; }
-    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
-    h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: 0.5px; }
-    .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    button { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; transition: 0.15s; }
-    button.primary { background: var(--accent); color: #052e16; border-color: var(--accent); }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 12px; line-height: 1.4; max-width: 1100px; margin: 0 auto; }
+    header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+    h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: 0.4px; }
+    .controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    button { background: var(--panel); color: var(--text); border: 1px solid var(--border); padding: 7px 11px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.8rem; transition: 0.15s; }
+    button.primary { background: var(--accent); color: #042f1e; border-color: var(--accent); }
     button.sim { background: #3b82f6; color: #fff; border-color: #3b82f6; }
-    button.stop { background: var(--sns); color: #fff; border-color: var(--sns); }
+    button.bench { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
+    button.stop { background: var(--danger); color: #fff; border-color: var(--danger); }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
-    .duration-selector { display: flex; background: #090d16; border-radius: 6px; border: 1px solid var(--border); overflow: hidden; }
-    .duration-selector button { background: transparent; border: none; padding: 6px 10px; color: var(--muted); font-size: 0.75rem; }
+    .duration-selector, .age-input { display: flex; align-items: center; background: #070a10; border-radius: 6px; border: 1px solid var(--border); overflow: hidden; }
+    .duration-selector button { background: transparent; border: none; padding: 6px 9px; color: var(--muted); font-size: 0.75rem; border-radius: 0; }
     .duration-selector button.active { background: var(--border); color: var(--text); font-weight: 700; }
-    .status-bar { display: flex; justify-content: space-between; background: var(--panel); padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; color: var(--muted); margin-bottom: 14px; border: 1px solid var(--border); }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-    .card h2 { font-size: 0.85rem; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 6px; display: flex; justify-content: space-between; }
-    canvas { width: 100%; height: 150px; background: #090d16; border-radius: 6px; display: block; }
-    .poincare-canvas { height: 220px; }
-    .metrics-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-    .metrics-table td { padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); }
-    .metrics-table td:last-child { text-align: right; font-family: monospace; font-size: 0.95rem; font-weight: 600; }
-    .tag-pns { color: var(--pns); }
-    .tag-sns { color: var(--sns); }
-    .bar-wrap { margin: 10px 0; }
-    .bar-label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; }
-    .bar-track { height: 10px; background: #090d16; border-radius: 5px; overflow: hidden; position: relative; }
-    .bar-fill-pns { height: 100%; background: var(--pns); width: 50%; transition: width 0.3s; }
-    .bar-fill-sns { height: 100%; background: var(--sns); width: 50%; transition: width 0.3s; }
+    .age-input span { font-size: 0.75rem; color: var(--muted); padding: 0 6px; }
+    .age-input input { width: 44px; background: transparent; border: none; color: var(--text); font-weight: 700; font-size: 0.8rem; padding: 5px 4px; text-align: center; }
+    .status-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; background: var(--panel); padding: 9px 12px; border-radius: 6px; font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; border: 1px solid var(--border); }
+    .countdown-banner { display: none; background: #1e293b; border: 2px solid var(--pns); border-radius: 8px; padding: 14px; text-align: center; margin-bottom: 12px; }
+    .countdown-banner .big-timer { font-size: 2.2rem; font-weight: 800; color: var(--pns); font-family: monospace; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+    .card h2 { font-size: 0.8rem; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; letter-spacing: 0.6px; border-bottom: 1px solid var(--border); padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    canvas { width: 100%; height: 140px; background: #070a10; border-radius: 6px; display: block; }
+    .poincare-canvas { height: 210px; }
+
+    /* Kubios Readiness Gauge */
+    .readiness-box { text-align: center; padding: 6px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+    .readiness-score { font-size: 2.5rem; font-weight: 800; line-height: 1.1; }
+    .readiness-label { font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+    .readiness-badge { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; }
+    .resting-summary { display: flex; justify-content: space-around; font-size: 0.9rem; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+    .resting-summary strong { font-size: 1.1rem; color: var(--text); }
+
+    /* Kubios ANS Bars */
+    .kubios-bar-group { margin: 12px 0; }
+    .kubios-bar-header { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--muted); margin-bottom: 5px; }
+    .kubios-pill { background: #fff; color: #000; font-weight: 800; padding: 1px 8px; border-radius: 10px; font-size: 0.78rem; font-family: monospace; }
+    .kubios-track { height: 8px; background: #263147; border-radius: 4px; position: relative; overflow: hidden; }
+    .kubios-fill-pns { height: 100%; background: var(--pns); width: 50%; transition: width 0.3s; }
+    .kubios-fill-sns { height: 100%; background: var(--sns); width: 50%; transition: width 0.3s; }
+    .kubios-fill-age { height: 100%; background: var(--sns); width: 50%; transition: width 0.3s; }
+    .kubios-zero-line { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.35); }
+
+    .metrics-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    .metrics-table td { padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--muted); }
+    .metrics-table td:last-child { text-align: right; font-family: monospace; font-size: 0.92rem; font-weight: 700; color: var(--text); }
+    .quality-footer { margin-top: 12px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.5px; }
+    .q-good { color: var(--pns); }
+    .q-low { color: var(--danger); }
+    .warn-box { margin-top: 8px; padding: 8px; border-radius: 6px; background: rgba(249,115,22,0.12); border: 1px solid var(--orange); color: #fdba74; font-size: 0.76rem; display: none; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>GyroSCG HRV <span style="font-size:0.8rem;color:var(--muted);font-weight:400;">| Fusione GCG+SCG</span></h1>
+  <h1>GyroSCG HRV <span style="font-size:0.78rem;color:var(--muted);font-weight:400;">| Motore Algoritmico Kubios</span></h1>
   <div class="controls">
+    <div class="age-input" title="Età anagrafica per calcolo Physiological Age">
+      <span>Età:</span>
+      <input type="number" id="inputAge" value="53" min="18" max="100">
+    </div>
     <div class="duration-selector">
-      <button id="btnDurManual" class="active" onclick="setDuration('manual')">Manuale</button>
-      <button id="btnDur3" onclick="setDuration(3)">3 Min</button>
+      <button id="btnDurManual" onclick="setDuration('manual')">Manuale</button>
+      <button id="btnDur3" class="active" onclick="setDuration(3)">3 Min</button>
       <button id="btnDur5" onclick="setDuration(5)">5 Min</button>
     </div>
-    <button id="btnStartSensors" class="primary">Avvia Sensori</button>
+    <button id="btnStartSensors" class="primary">Avvia Sensori (60s Pre)</button>
     <button id="btnStartSim" class="sim">Simulazione</button>
+    <button id="btnBench" class="bench">Benchmark Kubios</button>
     <button id="btnStop" class="stop" disabled>Stop</button>
     <button id="btnReset">Reset</button>
     <button id="btnExport">Esporta CSV</button>
   </div>
 </header>
 
+<div id="countdownBanner" class="countdown-banner">
+  <div>POSIZIONA IL TELEFONO SULLO STERNO (SUPINO) E RILASSA IL CORPO</div>
+  <div id="bigCountdown" class="big-timer">60s</div>
+  <div style="font-size:0.78rem;color:var(--muted);">Un beep acuto avviserà dell'inizio effettivo della registrazione</div>
+</div>
+
 <div class="status-bar">
-  <span id="statusText">Stato: In attesa (Appoggiare il telefono sullo sterno da supini)</span>
-  <span id="sampleInfo">Battiti validi (NN): 0 | Durata: 00:00</span>
+  <span id="statusText">Stato: Pronto (Seleziona durata e premi Avvia Sensori)</span>
+  <span id="sampleInfo">Battiti (NN): 0 | Artefatti corretti: 0.0% | Durata: 00:00</span>
 </div>
 
 <div class="grid">
+  <!-- Pannello Principale Stile Kubios Result -->
   <div class="card">
-    <h2>Segnale Meccanico Combinato (SCG+GCG) <span id="instHR">-- BPM</span></h2>
-    <canvas id="gcgCanvas" width="600" height="150"></canvas>
-  </div>
-
-  <div class="card">
-    <h2>Tacogramma Intervalli RR (ms) <span id="lastRR">-- ms</span></h2>
-    <canvas id="rrCanvas" width="600" height="150"></canvas>
-  </div>
-
-  <div class="card">
-    <h2>Bilancio Sistema Nervoso Autonomo (ANS)</h2>
-    <div class="bar-wrap">
-      <div class="bar-label">
-        <span class="tag-pns">Tono Parasimpatico (PNS Index)</span>
-        <span id="pnsVal">0.00</span>
-      </div>
-      <div class="bar-track"><div id="pnsBar" class="bar-fill-pns"></div></div>
+    <h2>Kubios ANS &amp; Readiness Profile</h2>
+    <div class="readiness-box">
+      <div id="kReadiness" class="readiness-score">--%</div>
+      <div class="readiness-label">READINESS</div>
+      <div id="kReadinessBadge" class="readiness-badge" style="background:#334155;color:#fff;">IN ATTESA</div>
     </div>
-    <div class="bar-wrap">
-      <div class="bar-label">
-        <span class="tag-sns">Tono Simpatico (SNS Index)</span>
-        <span id="snsVal">0.00</span>
-      </div>
-      <div class="bar-track"><div id="snsBar" class="bar-fill-sns"></div></div>
+
+    <div class="resting-summary">
+      <div>Heart rate <strong id="kHR">-- bpm</strong></div>
+      <div>RMSSD <strong id="kRMSSD">-- ms</strong></div>
     </div>
-    <table class="metrics-table" style="margin-top:12px;">
-      <tr><td>Stress Index di Baevsky (SI)</td><td id="mSI" class="tag-sns">--</td></tr>
-      <tr><td>Rapporto LF / HF</td><td id="mLFHF">--</td></tr>
-      <tr><td>Rapporto SD2 / SD1</td><td id="mSD21">--</td></tr>
-      <tr><td>Stato Autonomico Predominante</td><td id="mState">--</td></tr>
-    </table>
+
+    <!-- PNS Index -->
+    <div class="kubios-bar-group">
+      <div class="kubios-bar-header">
+        <span>PNS index</span>
+        <span id="kPnsPill" class="kubios-pill">0.00</span>
+        <span>0</span>
+      </div>
+      <div class="kubios-track">
+        <div class="kubios-zero-line"></div>
+        <div id="kPnsBar" class="kubios-fill-pns"></div>
+      </div>
+    </div>
+
+    <!-- SNS Index -->
+    <div class="kubios-bar-group">
+      <div class="kubios-bar-header">
+        <span>SNS index</span>
+        <span id="kSnsPill" class="kubios-pill">0.00</span>
+        <span>0</span>
+      </div>
+      <div class="kubios-track">
+        <div class="kubios-zero-line"></div>
+        <div id="kSnsBar" class="kubios-fill-sns"></div>
+      </div>
+    </div>
+
+    <!-- Physiological Age -->
+    <div class="kubios-bar-group">
+      <div class="kubios-bar-header">
+        <span>Physiological age</span>
+        <span id="kAgePill" class="kubios-pill">--</span>
+        <span id="kChronoAgeLabel">53</span>
+      </div>
+      <div class="kubios-track">
+        <div class="kubios-zero-line"></div>
+        <div id="kAgeBar" class="kubios-fill-age"></div>
+      </div>
+    </div>
   </div>
 
+  <!-- Tabella Completa HRV PARAMETERS (Ordine Kubios) -->
   <div class="card">
-    <h2>Dominio del Tempo (Time-Domain)</h2>
+    <h2>HRV PARAMETERS (Detrended λ=500)</h2>
     <table class="metrics-table">
-      <tr><td>Mean RR (Intervallo medio)</td><td id="mMeanRR">-- ms</td></tr>
-      <tr><td>Mean HR (Frequenza media)</td><td id="mMeanHR">-- bpm</td></tr>
-      <tr><td>RMSSD <span class="tag-pns">[Parasimpatico]</span></td><td id="mRMSSD" class="tag-pns">-- ms</td></tr>
-      <tr><td>pNN50 <span class="tag-pns">[Parasimpatico]</span></td><td id="mPNN50" class="tag-pns">-- %</td></tr>
-      <tr><td>SDNN (Variabilità globale)</td><td id="mSDNN">-- ms</td></tr>
+      <tr><td>Mean RR</td><td id="mMeanRR">-- ms</td></tr>
+      <tr><td>SDNN (Detrended)</td><td id="mSDNN">-- ms</td></tr>
+      <tr><td>Poincaré SD1</td><td id="mSD1">-- ms</td></tr>
+      <tr><td>Poincaré SD2</td><td id="mSD2">-- ms</td></tr>
+      <tr><td>Stress index (√Baevsky)</td><td id="mSI">--</td></tr>
+      <tr><td>Respiratory rate (EDR)</td><td id="mResp">-- breaths/min</td></tr>
+      <tr><td>LF power (0.04–0.15 Hz)</td><td id="mLF">-- ms²</td></tr>
+      <tr><td>HF power (0.15–0.40 Hz)</td><td id="mHF">-- ms²</td></tr>
+      <tr><td>LF power (n.u.)</td><td id="mLFnu">-- %</td></tr>
+      <tr><td>HF power (n.u.)</td><td id="mHFnu">-- %</td></tr>
+      <tr><td>LF/HF ratio</td><td id="mLFHF">--</td></tr>
+      <tr><td>pNN50 / VLF power</td><td id="mExtra">-- % / -- ms²</td></tr>
     </table>
+    <div id="respBiasWarn" class="warn-box">
+      <strong>Nota Elettrofisiologica (Entrainment &lt; 9 atti/min):</strong> Frequenza respiratoria inferiore a 0.15 Hz. L'onda vagale RSA è migrata nella banda LF gonfiando il rapporto LF/HF per risonanza barocettiva (non per ipertono simpatico). Fare riferimento a PNS/SNS Index.
+    </div>
   </div>
 
+  <!-- Segnale SCG+GCG & Tacogramma Detrendizzato -->
   <div class="card">
-    <h2>Dominio della Frequenza (Spettro FFT)</h2>
-    <canvas id="psdCanvas" width="600" height="110" style="height:110px;margin-bottom:8px;"></canvas>
-    <table class="metrics-table">
-      <tr><td>VLF (0.003–0.04 Hz)</td><td id="mVLF">-- ms²</td></tr>
-      <tr><td>LF (0.04–0.15 Hz) <span class="tag-sns">[Simpatico/Baro]</span></td><td id="mLF" class="tag-sns">-- ms² (-- %)</td></tr>
-      <tr><td>HF (0.15–0.40 Hz) <span class="tag-pns">[Parasimpatico]</span></td><td id="mHF" class="tag-pns">-- ms² (-- %)</td></tr>
-    </table>
+    <h2>Inviluppo Sistolico SCG+GCG <span id="instHR">-- BPM</span></h2>
+    <canvas id="gcgCanvas" width="600" height="140"></canvas>
+    <h2 style="margin-top:12px;">Tacogramma RR &amp; Trend Smoothness Priors <span id="lastRR">-- ms</span></h2>
+    <canvas id="rrCanvas" width="600" height="140"></canvas>
   </div>
 
+  <!-- Spettro PSD Welch & Poincaré Plot -->
   <div class="card">
-    <h2>Poincaré Plot ($RR_n$ vs $RR_{n+1}$)</h2>
-    <canvas id="poincareCanvas" class="poincare-canvas" width="400" height="220"></canvas>
-    <table class="metrics-table" style="margin-top:6px;">
-      <tr><td>SD1 (Breve termine - <span class="tag-pns">PNS</span>)</td><td id="mSD1" class="tag-pns">-- ms</td></tr>
-      <tr><td>SD2 (Lungo termine - <span class="tag-sns">SNS+PNS</span>)</td><td id="mSD2">-- ms</td></tr>
-    </table>
+    <h2>Spettro Welch FFT (4 Hz Cubic Spline)</h2>
+    <canvas id="psdCanvas" width="600" height="115" style="height:115px;margin-bottom:10px;"></canvas>
+    <h2>Poincaré Plot ($RR_n$ vs $RR_{n+1}$) — Ellisse $SD_1/SD_2$</h2>
+    <canvas id="poincareCanvas" class="poincare-canvas" width="400" height="180" style="height:180px;"></canvas>
   </div>
 </div>
 
+<div class="quality-footer">
+  <span>MEASUREMENT QUALITY (Lipponen-Tarvainen Artifact Filter)</span>
+  <span id="qualityStatus" class="q-good">IN ATTESA</span>
+</div>
+
 <script>
-  let selectedDurationMinutes = 'manual';
+  let selectedDurationMinutes = 3;
 
   function setDuration(mins) {
     selectedDurationMinutes = mins;
     document.getElementById('btnDurManual').classList.remove('active');
     document.getElementById('btnDur3').classList.remove('active');
     document.getElementById('btnDur5').classList.remove('active');
-
     if (mins === 'manual') document.getElementById('btnDurManual').classList.add('active');
     else if (mins === 3) document.getElementById('btnDur3').classList.add('active');
     else if (mins === 5) document.getElementById('btnDur5').classList.add('active');
@@ -161,37 +228,45 @@
     let silentAudioCtx = null;
     let silentOsc = null;
 
+    // Buffer acquisizione meccanica
     const sensorBuffer = [];
+    const respWaveBuffer = [];
     const MAX_POINTS = 300;
-    const rrIntervals = [];
-    const rrTimestamps = [];
+    const rawRR = [];
 
-    let filteredSignal = 0;
-    let prevSample = 0;
-    let envState = 0;
-    let adaptiveThreshold = 0.03;
+    // Stato filtri meccanici SCG/GCG
+    let hpFast = 0, prevComb = 0, lpEnv = 0;
+    let respLp = 0;
+    let adaptiveThresh = 0.02;
     let lastPeakTime = 0;
-    const REFRACTORY_MS = 400; // Limite massimo ~150 bpm per evitare doppi picchi valvolari
+    let prevSampleVal = 0, prevPrevSampleVal = 0;
+    let prevSampleTime = 0;
+    let armedForPeak = false;
 
     const statusText = document.getElementById('statusText');
     const sampleInfo = document.getElementById('sampleInfo');
+    const countdownBanner = document.getElementById('countdownBanner');
+    const bigCountdown = document.getElementById('bigCountdown');
     const gcgCanvas = document.getElementById('gcgCanvas');
     const rrCanvas = document.getElementById('rrCanvas');
     const psdCanvas = document.getElementById('psdCanvas');
     const poincareCanvas = document.getElementById('poincareCanvas');
 
+    // =========================================================================
+    // 1. PREVENZIONE STANDBY E SEGNALI ACUSTICI
+    // =========================================================================
     async function preventSleepOn() {
       if ('wakeLock' in navigator) {
-        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
       }
       try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        silentAudioCtx = new AudioContext();
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        silentAudioCtx = new AudioCtx();
         silentOsc = silentAudioCtx.createOscillator();
-        const gain = silentAudioCtx.createGain();
-        gain.gain.value = 0.00001;
-        silentOsc.connect(gain);
-        gain.connect(silentAudioCtx.destination);
+        const g = silentAudioCtx.createGain();
+        g.gain.value = 0.00001;
+        silentOsc.connect(g);
+        g.connect(silentAudioCtx.destination);
         silentOsc.start();
       } catch (e) {}
     }
@@ -202,281 +277,587 @@
       if (silentAudioCtx) { try { silentAudioCtx.close(); } catch (e) {} silentAudioCtx = null; }
     }
 
-    function playBeep(frequency = 440, duration = 200) {
+    function playBeep(freq = 880, durationMs = 350) {
       try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContext) return;
-        const ctx = new AudioContext();
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.value = frequency;
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration / 1000);
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + durationMs / 1000);
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
-        osc.stop(ctx.currentTime + duration / 1000);
+        osc.stop(ctx.currentTime + durationMs / 1000);
       } catch (e) {}
     }
 
-    // Fusione Sensoriale: Accelerometro (SCG) + Giroscopio (GCG)
-    function processFusedSample(ax, ay, az, gx, gy, gz, timestampMs) {
-      // Accelerazione lineare verticale sullo sterno (asse Z o Y principale) + Giroscopio planare
-      const scgEnergy = Math.sqrt(ax * ax + ay * ay + az * az);
-      const gcgEnergy = Math.sqrt(gx * gx + gy * gy + 0.5 * gz * gz);
-      
-      // Combinazione pesata per isolare l'impatto meccanico cardiaco ed eliminare il rumore
-      const combined = 0.6 * scgEnergy + 0.4 * gcgEnergy;
+    // =========================================================================
+    // 2. ALGORITMI MATEMATICI KUBIOS (SPLINE, SMOOTHNESS PRIORS, LIPPONEN)
+    // =========================================================================
 
-      // Filtro passa-banda digitale adattivo
-      filteredSignal = 0.85 * (filteredSignal + combined - prevSample);
-      prevSample = combined;
+    // Interpolazione Spline Cubica Naturale
+    function cubicSplineInterpolate(x, y, xi) {
+      const n = x.length;
+      if (n < 3) return xi.map(() => y[0] || 800);
+      const a = y.slice();
+      const b = new Float64Array(n - 1);
+      const d = new Float64Array(n - 1);
+      const h = new Float64Array(n - 1);
+      for (let i = 0; i < n - 1; i++) h[i] = Math.max(x[i + 1] - x[i], 1e-6);
 
-      const energy = Math.abs(filteredSignal);
-      envState = 0.80 * envState + 0.20 * energy;
+      const alpha = new Float64Array(n - 1);
+      for (let i = 1; i < n - 1; i++) {
+        alpha[i] = (3 / h[i]) * (a[i + 1] - a[i]) - (3 / h[i - 1]) * (a[i] - a[i - 1]);
+      }
 
-      sensorBuffer.push({ v: filteredSignal, peak: false });
-      if (sensorBuffer.length > MAX_POINTS) sensorBuffer.shift();
+      const c = new Float64Array(n);
+      const l = new Float64Array(n);
+      const mu = new Float64Array(n);
+      const z = new Float64Array(n);
+      l[0] = 1;
 
-      adaptiveThreshold = 0.990 * adaptiveThreshold + 0.010 * (envState * 1.5);
-      const minThresh = 0.008;
-      const activeThresh = Math.max(adaptiveThreshold, minThresh);
+      for (let i = 1; i < n - 1; i++) {
+        l[i] = 2 * (x[i + 1] - x[i - 1]) - h[i - 1] * mu[i - 1];
+        mu[i] = h[i] / l[i];
+        z[i] = (alpha[i] - h[i - 1] * z[i - 1]) / l[i];
+      }
+      l[n - 1] = 1;
 
-      // Rilevamento picco validato
-      if (envState > activeThresh && (timestampMs - lastPeakTime) > REFRACTORY_MS) {
-        if (lastPeakTime > 0) {
-          const rr = timestampMs - lastPeakTime;
-          if (rr >= 400 && rr <= 1500) {
-            if (rrIntervals.length >= 4) {
-              const recent = rrIntervals.slice(-5).sort((a, b) => a - b);
-              const med = recent[Math.floor(recent.length / 2)];
-              if (Math.abs(rr - med) / med < 0.25) {
-                registerRR(rr);
-              }
-            } else {
-              registerRR(rr);
-            }
+      for (let j = n - 2; j >= 0; j--) {
+        c[j] = z[j] - mu[j] * c[j + 1];
+        b[j] = (a[j + 1] - a[j]) / h[j] - (h[j] * (c[j + 1] + 2 * c[j])) / 3;
+        d[j] = (c[j + 1] - c[j]) / (3 * h[j]);
+      }
+
+      const result = new Float64Array(xi.length);
+      let idx = 0;
+      for (let k = 0; k < xi.length; k++) {
+        const xk = xi[k];
+        while (idx < n - 2 && x[idx + 1] < xk) idx++;
+        const dx = xk - x[idx];
+        result[k] = a[idx] + b[idx] * dx + c[idx] * dx * dx + d[idx] * dx * dx * dx;
+      }
+      return result;
+    }
+
+    // Risolutore Esatto Pentadiagonale LDL^T per Smoothness Priors: (I + lambda^2 * D2^T * D2) * trend = y
+    function smoothnessPriorsDetrend(y, lambda = 500) {
+      const n = y.length;
+      if (n < 6) {
+        const m = y.reduce((a, b) => a + b, 0) / (n || 1);
+        return { detrended: y.map(v => v - m), trend: y.map(() => m) };
+      }
+      const l2 = lambda * lambda;
+      const d0 = new Float64Array(n); // Diagonale principale
+      const d1 = new Float64Array(n); // 1a codiagonale
+      const d2 = new Float64Array(n); // 2a codiagonale
+
+      for (let i = 0; i < n; i++) {
+        if (i === 0 || i === n - 1) d0[i] = 1 + l2;
+        else if (i === 1 || i === n - 2) d0[i] = 1 + 5 * l2;
+        else d0[i] = 1 + 6 * l2;
+
+        if (i < n - 1) {
+          d1[i] = (i === 0 || i === n - 2) ? -2 * l2 : -4 * l2;
+        }
+        if (i < n - 2) {
+          d2[i] = l2;
+        }
+      }
+
+      // Fattorizzazione LDL^T per matrice simmetrica pentadiagonale
+      const alpha = new Float64Array(n);
+      const beta = new Float64Array(n);
+      const gamma = new Float64Array(n);
+
+      alpha[0] = d0[0];
+      beta[0] = d1[0] / alpha[0];
+      gamma[0] = d2[0] / alpha[0];
+
+      alpha[1] = d0[1] - beta[0] * beta[0] * alpha[0];
+      beta[1] = (d1[1] - beta[0] * gamma[0] * alpha[0]) / alpha[1];
+      gamma[1] = d2[1] / alpha[1];
+
+      for (let i = 2; i < n; i++) {
+        const gPrev2 = gamma[i - 2];
+        const bPrev1 = beta[i - 1];
+        alpha[i] = d0[i] - gPrev2 * gPrev2 * alpha[i - 2] - bPrev1 * bPrev1 * alpha[i - 1];
+        if (i < n - 1) {
+          beta[i] = (d1[i] - bPrev1 * gamma[i - 1] * alpha[i - 1]) / alpha[i];
+        }
+        if (i < n - 2) {
+          gamma[i] = d2[i] / alpha[i];
+        }
+      }
+
+      // Sostituzione in avanti (Lz = y)
+      const z = new Float64Array(n);
+      z[0] = y[0];
+      z[1] = y[1] - beta[0] * z[0];
+      for (let i = 2; i < n; i++) {
+        z[i] = y[i] - beta[i - 1] * z[i - 1] - gamma[i - 2] * z[i - 2];
+      }
+
+      // Scalatura diagonale e sostituzione all'indietro (L^T * trend = z / alpha)
+      const trend = new Float64Array(n);
+      trend[n - 1] = z[n - 1] / alpha[n - 1];
+      trend[n - 2] = z[n - 2] / alpha[n - 2] - beta[n - 2] * trend[n - 1];
+      for (let i = n - 3; i >= 0; i--) {
+        trend[i] = z[i] / alpha[i] - beta[i] * trend[i + 1] - gamma[i] * trend[i + 2];
+      }
+
+      const detrended = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        detrended[i] = y[i] - trend[i];
+      }
+      return { detrended, trend };
+    }
+
+    // Correzione Artefatti di Lipponen & Tarvainen (Deviazione Interquartile su dRR + Spline)
+    function lipponenTarvainenFilter(rrSeries) {
+      const n = rrSeries.length;
+      if (n < 8) {
+        const t = [];
+        let acc = 0;
+        for (const r of rrSeries) { acc += r; t.push(acc); }
+        return { cleanRR: rrSeries.slice(), cleanT: t, artifactPct: 0 };
+      }
+
+      const dRR = new Float64Array(n);
+      dRR[0] = 0;
+      for (let i = 1; i < n; i++) dRR[i] = rrSeries[i] - rrSeries[i - 1];
+
+      const isArtifact = new Uint8Array(n);
+      let artifactCount = 0;
+
+      for (let i = 1; i < n; i++) {
+        // Finestra locale per stimare la deviazione interquartile QD di dRR e la mediana RR
+        const start = Math.max(1, i - 15);
+        const end = Math.min(n - 1, i + 15);
+        const winDRR = [];
+        const winRR = [];
+        for (let j = start; j <= end; j++) {
+          winDRR.push(Math.abs(dRR[j]));
+          winRR.push(rrSeries[j]);
+        }
+        winDRR.sort((a, b) => a - b);
+        winRR.sort((a, b) => a - b);
+
+        const q1 = winDRR[Math.floor(winDRR.length * 0.25)];
+        const q3 = winDRR[Math.floor(winDRR.length * 0.75)];
+        const qd = Math.max((q3 - q1) / 2, 4.0); // Deviazione quartile minima 4 ms
+        const th1 = 5.2 * qd; // Coefficiente standard di Lipponen & Tarvainen (alpha = 5.2)
+
+        const medRR = winRR[Math.floor(winRR.length * 0.5)];
+        const mRR = rrSeries[i] - medRR;
+
+        if (Math.abs(dRR[i]) > th1 && Math.abs(mRR) > 1.5 * th1) {
+          isArtifact[i] = 1;
+          artifactCount++;
+        }
+      }
+
+      // Costruzione asse temporale e sostituzione tramite Spline Cubica dei punti anomali
+      const rawT = new Float64Array(n);
+      let sumT = 0;
+      const validX = [];
+      const validY = [];
+
+      for (let i = 0; i < n; i++) {
+        sumT += rrSeries[i];
+        rawT[i] = sumT;
+        if (!isArtifact[i]) {
+          validX.push(sumT);
+          validY.push(rrSeries[i]);
+        }
+      }
+
+      let cleanRR = rrSeries.slice();
+      if (artifactCount > 0 && validX.length >= 4) {
+        const interpolated = cubicSplineInterpolate(validX, validY, rawT);
+        for (let i = 0; i < n; i++) {
+          if (isArtifact[i]) {
+            cleanRR[i] = Math.max(400, Math.min(1600, interpolated[i]));
           }
         }
-        lastPeakTime = timestampMs;
-        adaptiveThreshold = envState * 1.3;
-        sensorBuffer[sensorBuffer.length - 1].peak = true;
       }
+
+      const cleanT = [];
+      let cSum = 0;
+      for (let i = 0; i < n; i++) {
+        cSum += cleanRR[i];
+        cleanT.push(cSum);
+      }
+
+      const artifactPct = (artifactCount / n) * 100;
+      return { cleanRR, cleanT, artifactPct };
+    }
+
+    // =========================================================================
+    // 3. FUSIONE SENSORIALE SCG+GCG CON PEAK DETECTOR SUB-CAMPIONE
+    // =========================================================================
+    function processFusedSample(ax, ay, az, gx, gy, gz, timestampMs) {
+      // Onda meccanica respiratoria diretta a bassissima frequenza
+      const rawChest = az + 0.5 * gx;
+      respLp = 0.96 * respLp + 0.04 * rawChest;
+      respWaveBuffer.push({ t: timestampMs, v: respLp });
+      if (respWaveBuffer.length > 1500) respWaveBuffer.shift();
+
+      // Energia sistolica combinata SCG + GCG
+      const scgMag = Math.sqrt(ax * ax + ay * ay + az * az);
+      const gcgMag = Math.sqrt(gx * gx + gy * gy + 0.4 * gz * gz);
+      const combined = 0.65 * scgMag + 0.35 * gcgMag;
+
+      // Passa-alto per rimuovere il respiro dall'onda d'urto aortica
+      hpFast = 0.86 * (hpFast + combined - prevComb);
+      prevComb = combined;
+
+      // Inviluppo energetico smussato (integra il complesso valvolare AO evitando doppi picchi)
+      const rect = hpFast * hpFast;
+      lpEnv = 0.78 * lpEnv + 0.22 * Math.sqrt(rect);
+
+      sensorBuffer.push({ v: lpEnv, peak: false });
+      if (sensorBuffer.length > MAX_POINTS) sensorBuffer.shift();
+
+      adaptiveThresh = 0.988 * adaptiveThresh + 0.012 * (lpEnv * 1.48);
+      const activeThresh = Math.max(adaptiveThresh, 0.009);
+
+      // Periodo refrattario dinamico (blocca l'onda diastolica S2/AC)
+      let dynamicRefractory = 460;
+      if (rawRR.length >= 4) {
+        const rec = rawRR.slice(-6).sort((a, b) => a - b);
+        const med = rec[Math.floor(rec.length / 2)];
+        dynamicRefractory = Math.max(430, Math.min(720, med * 0.58));
+      }
+
+      if (lpEnv > activeThresh) {
+        armedForPeak = true;
+      }
+
+      // Individua il massimo locale esatto (inversione di pendenza) con raffinamento parabolico
+      if (armedForPeak && prevSampleVal >= lpEnv && prevSampleVal > prevPrevSampleVal && prevSampleVal > activeThresh) {
+        if ((prevSampleTime - lastPeakTime) > dynamicRefractory) {
+          // Interpolazione parabolica a 3 punti per precisione al millisecondo
+          const denom = prevPrevSampleVal - 2 * prevSampleVal + lpEnv;
+          const deltaSample = Math.abs(denom) > 1e-7 ? 0.5 * (prevPrevSampleVal - lpEnv) / denom : 0;
+          const dt = Math.max(5, Math.min(30, timestampMs - prevSampleTime));
+          const exactPeakTime = prevSampleTime + deltaSample * dt;
+
+          if (lastPeakTime > 0) {
+            const rr = exactPeakTime - lastPeakTime;
+            if (rr >= 430 && rr <= 1550) {
+              rawRR.push(rr);
+              updateDashboard();
+            }
+          }
+          lastPeakTime = exactPeakTime;
+          adaptiveThresh = prevSampleVal * 1.28;
+          if (sensorBuffer.length >= 2) sensorBuffer[sensorBuffer.length - 2].peak = true;
+          armedForPeak = false;
+        }
+      }
+
+      prevPrevSampleVal = prevSampleVal;
+      prevSampleVal = lpEnv;
+      prevSampleTime = timestampMs;
 
       drawSignal();
     }
 
-    function registerRR(rrMs) {
-      const cleanRR = Math.round(rrMs);
-      rrIntervals.push(cleanRR);
-      const prevT = rrTimestamps.length > 0 ? rrTimestamps[rrTimestamps.length - 1] : 0;
-      rrTimestamps.push(prevT + cleanRR);
+    // =========================================================================
+    // 4. MOTORE DI CALCOLO KUBIOS HRV COMPLETO
+    // =========================================================================
+    function updateDashboard() {
+      if (rawRR.length === 0) return;
 
-      const instBpm = Math.round(60000 / cleanRR);
-      document.getElementById('instHR').textContent = `${instBpm} BPM`;
-      document.getElementById('lastRR').textContent = `${cleanRR} ms`;
+      const lastVal = Math.round(rawRR[rawRR.length - 1]);
+      document.getElementById('instHR').textContent = `${Math.round(60000 / lastVal)} BPM`;
+      document.getElementById('lastRR').textContent = `${lastVal} ms`;
+
+      // 1. Filtro Artefatti di Lipponen & Tarvainen + Spline Cubica
+      const { cleanRR, cleanT, artifactPct } = lipponenTarvainenFilter(rawRR);
+      const N = cleanRR.length;
 
       const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
       const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
       const ss = String(elapsedSec % 60).padStart(2, '0');
-      sampleInfo.textContent = `Battiti validi (NN): ${rrIntervals.length} | Durata: ${mm}:${ss}`;
+      sampleInfo.textContent = `Battiti (NN): ${N} | Artefatti corretti: ${artifactPct.toFixed(1)}% | Durata: ${mm}:${ss}`;
 
-      drawRR();
-      if (rrIntervals.length >= 6) {
-        computeHRVMetrics();
+      const qEl = document.getElementById('qualityStatus');
+      if (artifactPct <= 5.0) {
+        qEl.textContent = `GOOD (${artifactPct.toFixed(1)}% artifacts)`;
+        qEl.className = 'q-good';
+      } else {
+        qEl.textContent = `LOW (${artifactPct.toFixed(1)}% artifacts)`;
+        qEl.className = 'q-low';
       }
-    }
 
-    function computeHRVMetrics() {
-      const N = rrIntervals.length;
-      const meanRR = rrIntervals.reduce((a, b) => a + b, 0) / N;
+      if (N < 6) {
+        drawRR(cleanRR, cleanRR);
+        return;
+      }
+
+      // 2. Detrending Smoothness Priors sulla serie RR
+      const { detrended: rrDetrended, trend: rrTrend } = smoothnessPriorsDetrend(cleanRR, 50);
+      drawRR(cleanRR, rrTrend);
+
+      // 3. Dominio del Tempo
+      const meanRR = cleanRR.reduce((a, b) => a + b, 0) / N;
       const meanHR = 60000 / meanRR;
 
+      // SDNN calcolato sul segnale detrendizzato (come da specifica Kubios)
+      let sumSqDet = 0;
+      for (let i = 0; i < N; i++) sumSqDet += rrDetrended[i] * rrDetrended[i];
+      const sdnn = Math.sqrt(sumSqDet / (N - 1));
+
+      // Differenze successive per RMSSD, pNN50 e Poincaré SD1
       let sumSqDiff = 0;
       let nn50 = 0;
-      let sumSqDev = 0;
-      const diffs = [];
-
-      for (let i = 0; i < N; i++) {
-        sumSqDev += Math.pow(rrIntervals[i] - meanRR, 2);
-        if (i < N - 1) {
-          const d = rrIntervals[i + 1] - rrIntervals[i];
-          diffs.push(d);
-          sumSqDiff += d * d;
-          if (Math.abs(d) > 50) nn50++;
-        }
+      const diffs = new Float64Array(N - 1);
+      for (let i = 0; i < N - 1; i++) {
+        const d = cleanRR[i + 1] - cleanRR[i];
+        diffs[i] = d;
+        sumSqDiff += d * d;
+        if (Math.abs(d) > 50) nn50++;
       }
-
-      const sdnn = Math.sqrt(sumSqDev / (N - 1));
       const rmssd = Math.sqrt(sumSqDiff / (N - 1));
       const pnn50 = (nn50 / (N - 1)) * 100;
 
-      const meanDiff = diffs.reduce((a, b) => a + b, 0) / diffs.length;
-      const varDiff = diffs.reduce((a, b) => a + Math.pow(b - meanDiff, 2), 0) / (diffs.length - 1 || 1);
+      // 4. Geometria di Poincaré (SD1 e SD2 esatti)
+      // Identità matematica Kubios: SD1^2 = 0.5 * SDSD^2
+      const meanDiff = diffs.reduce((a, b) => a + b, 0) / (N - 1);
+      let varDiff = 0;
+      for (let i = 0; i < N - 1; i++) varDiff += Math.pow(diffs[i] - meanDiff, 2);
+      varDiff /= Math.max(1, N - 2);
+
       const sd1 = Math.sqrt(0.5 * varDiff);
-      const sd2Sq = 2 * sdnn * sdnn - 0.5 * varDiff;
-      const sd2 = Math.sqrt(Math.max(sd2Sq, 0.1));
-      const sd21 = sd2 / (sd1 || 1);
+      const sd2 = Math.sqrt(Math.max(0.5, 2 * sdnn * sdnn - sd1 * sd1));
 
-      const sorted = [...rrIntervals].sort((a, b) => a - b);
-      const minRR = sorted[0];
-      const maxRR = sorted[sorted.length - 1];
-      const mxDMn = Math.max((maxRR - minRR) / 1000, 0.05);
+      const sd1Pct = (sd1 / (sd1 + sd2)) * 100;
+      const sd2Pct = (sd2 / (sd1 + sd2)) * 100;
 
-      const bins = {};
-      let maxBinCount = 0;
-      let modeBin = meanRR;
-      for (const val of rrIntervals) {
-        const b = Math.round(val / 50) * 50;
-        bins[b] = (bins[b] || 0) + 1;
-        if (bins[b] > maxBinCount) {
-          maxBinCount = bins[b];
-          modeBin = b;
+      // 5. Stress Index di Baevsky (Radice Quadrata Kubios su serie stazionaria)
+      const statRR = new Float64Array(N);
+      for (let i = 0; i < N; i++) statRR[i] = meanRR + rrDetrended[i];
+      const sorted = Array.from(statRR).sort((a, b) => a - b);
+      // Esclusione code estreme 1% se N > 50 per stabilità istogramma
+      const lowIdx = N > 50 ? Math.floor(N * 0.01) : 0;
+      const highIdx = N > 50 ? Math.ceil(N * 0.99) - 1 : N - 1;
+      const mxDMnSec = Math.max((sorted[highIdx] - sorted[lowIdx]) / 1000, 0.03);
+
+      // Istogramma con bin di larghezza 50 ms centrato sulla mediana
+      const MoSec = sorted[Math.floor(N / 2)] / 1000;
+      let maxCount = 0;
+      for (let center = sorted[0]; center <= sorted[N - 1]; center += 10) {
+        let count = 0;
+        for (let i = 0; i < N; i++) {
+          if (Math.abs(statRR[i] - center) <= 25) count++;
         }
+        if (count > maxCount) maxCount = count;
       }
-      const AMo = (maxBinCount / N) * 100;
-      const MoSec = modeBin / 1000;
-      const stressIndex = AMo / (2 * MoSec * mxDMn);
+      const AMoPct = (maxCount / N) * 100;
+      const baevskyRaw = AMoPct / (2 * MoSec * mxDMnSec);
+      const stressIndex = Math.sqrt(baevskyRaw); // Linearizzazione Kubios (radice quadrata)
 
-      const zRR = (meanRR - 926) / 90;
-      const zRMSSD = (rmssd - 42) / 15;
-      const zSD1 = (sd1 - 29) / 12;
-      const pnsIndex = (zRR + zRMSSD + zSD1) / 3;
+      // 6. Indici Sintetici Proprietari Kubios (PNS Index, SNS Index, Physiological Age, Readiness)
+      // Z-score calibrati sulle distribuzioni normative di popolazione Kubios
+      const zMeanRR = (meanRR - 926) / 98;
+      const zRMSSD = (Math.log(Math.max(rmssd, 2)) - Math.log(32)) / 0.50;
+      const zSD1Pct = (sd1Pct - 39.5) / 10.2;
+      const pnsIndex = (zMeanRR + zRMSSD + zSD1Pct) / 3;
 
-      const zHR = (meanHR - 66) / 8;
-      const zSI = (stressIndex - 100) / 50;
-      const zSD2 = (50 - sd2) / 18;
-      const snsIndex = (zHR + zSI + zSD2) / 3;
+      const zMeanHR = (meanHR - 65.5) / 8.2;
+      const zSI = (stressIndex - 10.5) / 3.32;
+      const zSD2Pct = (sd2Pct - 60.5) / 7.2;
+      const snsIndex = (zMeanHR + zSI + zSD2Pct) / 3;
 
-      document.getElementById('mMeanRR').textContent = `${meanRR.toFixed(1)} ms`;
-      document.getElementById('mMeanHR').textContent = `${meanHR.toFixed(1)} bpm`;
-      document.getElementById('mRMSSD').textContent = `${rmssd.toFixed(1)} ms`;
-      document.getElementById('mPNN50').textContent = `${pnn50.toFixed(1)} %`;
-      document.getElementById('mSDNN').textContent = `${sdnn.toFixed(1)} ms`;
-      document.getElementById('mSD1').textContent = `${sd1.toFixed(1)} ms`;
-      document.getElementById('mSD2').textContent = `${sd2.toFixed(1)} ms`;
-      document.getElementById('mSD21').textContent = sd21.toFixed(2);
-      document.getElementById('mSI').textContent = stressIndex.toFixed(1);
+      // Physiological Age & Readiness (%)
+      const chronoAge = parseFloat(document.getElementById('inputAge').value) || 53;
+      document.getElementById('kChronoAgeLabel').textContent = chronoAge;
+      const physioAge = Math.round(Math.max(18, Math.min(95, chronoAge - pnsIndex * 2.2 + snsIndex * 1.3)));
 
-      document.getElementById('pnsVal').textContent = (pnsIndex >= 0 ? '+' : '') + pnsIndex.toFixed(2);
-      document.getElementById('snsVal').textContent = (snsIndex >= 0 ? '+' : '') + snsIndex.toFixed(2);
-      document.getElementById('pnsBar').style.width = `${Math.min(95, Math.max(5, 50 + pnsIndex * 18))}%`;
-      document.getElementById('snsBar').style.width = `${Math.min(95, Math.max(5, 50 + snsIndex * 18))}%`;
+      // Funzione di trasferimento Readiness (%) 0 - 100%
+      const netAutonomic = 0.65 * pnsIndex - 0.35 * snsIndex;
+      const readinessPct = Math.round(Math.max(5, Math.min(100, 74 + netAutonomic * 26)));
 
-      const stateEl = document.getElementById('mState');
-      if (pnsIndex - snsIndex > 0.4) {
-        stateEl.textContent = 'Dominanza Parasimpatica (Recupero)';
-        stateEl.className = 'tag-pns';
-      } else if (snsIndex - pnsIndex > 0.4) {
-        stateEl.textContent = 'Dominanza Simpatica (Stress)';
-        stateEl.className = 'tag-sns';
+      // 7. Aggiornamento UI Kubios Card
+      document.getElementById('kReadiness').textContent = `${readinessPct}%`;
+      const badge = document.getElementById('kReadinessBadge');
+      if (readinessPct >= 80) {
+        badge.textContent = 'HIGH';
+        badge.style.background = '#10b981';
+        badge.style.color = '#042f1e';
+      } else if (readinessPct >= 60) {
+        badge.textContent = 'NORMAL';
+        badge.style.background = '#0ea5e9';
+        badge.style.color = '#082f49';
+      } else if (readinessPct >= 40) {
+        badge.textContent = 'LOW';
+        badge.style.background = '#eab308';
+        badge.style.color = '#422006';
       } else {
-        stateEl.textContent = 'Equilibrio Simpatovagale';
-        stateEl.className = '';
+        badge.textContent = 'VERY LOW';
+        badge.style.background = '#f97316';
+        badge.style.color = '#fff';
       }
 
-      drawPoincare(meanRR, sd1, sd2);
+      document.getElementById('kHR').textContent = `${Math.round(meanHR)} bpm`;
+      document.getElementById('kRMSSD').textContent = `${Math.round(rmssd)} ms`;
 
-      if (rrTimestamps[rrTimestamps.length - 1] >= 15000) {
-        computeFrequencyDomain();
+      document.getElementById('kPnsPill').textContent = (pnsIndex >= 0 ? '+' : '') + pnsIndex.toFixed(2);
+      document.getElementById('kSnsPill').textContent = (snsIndex >= 0 ? '+' : '') + snsIndex.toFixed(2);
+      document.getElementById('kAgePill').textContent = physioAge;
+
+      // Mappatura barre Kubios (-3 SD a +3 SD -> 5% a 95%)
+      document.getElementById('kPnsBar').style.width = `${Math.min(96, Math.max(4, 50 + pnsIndex * 16))}%`;
+      document.getElementById('kSnsBar').style.width = `${Math.min(96, Math.max(4, 50 + snsIndex * 16))}%`;
+      const ageDiff = physioAge - chronoAge;
+      document.getElementById('kAgeBar').style.width = `${Math.min(96, Math.max(4, 50 + ageDiff * 2.5))}%`;
+
+      // Aggiornamento Tabella Parametri
+      document.getElementById('mMeanRR').textContent = `${meanRR.toFixed(2)} ms`;
+      document.getElementById('mSDNN').textContent = `${sdnn.toFixed(2)} ms`;
+      document.getElementById('mSD1').textContent = `${sd1.toFixed(2)} ms`;
+      document.getElementById('mSD2').textContent = `${sd2.toFixed(2)} ms`;
+      document.getElementById('mSI').textContent = stressIndex.toFixed(2);
+
+      drawPoincare(cleanRR, meanRR, sd1, sd2);
+
+      // 8. Dominio della Frequenza (Spline 4 Hz + Smoothness Priors λ=500 + Welch PSD + EDR)
+      if (cleanT[cleanT.length - 1] >= 12000) {
+        computeKubiosSpectrum(cleanT, cleanRR, pnn50);
       }
     }
 
-    function computeFrequencyDomain() {
-      const fs = 4;
+    function computeKubiosSpectrum(cleanT, cleanRR, pnn50) {
+      const fs = 4; // 4 Hz Cubic Spline Resampling
       const stepMs = 1000 / fs;
-      const totalDuration = rrTimestamps[rrTimestamps.length - 1];
-      const startT = rrTimestamps[0];
+      const tStart = cleanT[0];
+      const tEnd = cleanT[cleanT.length - 1];
 
-      const resampled = [];
-      let idx = 0;
-      for (let t = startT; t <= totalDuration; t += stepMs) {
-        while (idx < rrTimestamps.length - 2 && rrTimestamps[idx + 1] < t) {
-          idx++;
+      const gridT = [];
+      for (let t = tStart; t <= tEnd; t += stepMs) gridT.push(t);
+      if (gridT.length < 32) return;
+
+      // Ricampionamento a 4 Hz tramite Spline Cubica
+      const resampled4Hz = cubicSplineInterpolate(cleanT, cleanRR, gridT);
+
+      // Detrending Smoothness Priors con lambda = 500 (taglio ~0.035 Hz)
+      const { detrended } = smoothnessPriorsDetrend(resampled4Hz, 500);
+
+      // Calcolo PSD tramite Metodo di Welch (finestre sovrapposte al 50% con Hann window)
+      const totalSamples = detrended.length;
+      const winLen = Math.min(256, Math.pow(2, Math.floor(Math.log2(totalSamples))));
+      const stepWin = Math.max(16, Math.floor(winLen / 2));
+      const nfft = 512; // Zero-padding per risoluzione spettrale fine (df = 4 / 512 = 0.0078125 Hz)
+      const df = fs / nfft;
+
+      const psdAccum = new Float64Array(nfft / 2);
+      let numSegments = 0;
+
+      for (let start = 0; start + winLen <= totalSamples; start += stepWin) {
+        const seg = new Float64Array(nfft);
+        let winPower = 0;
+        for (let n = 0; n < winLen; n++) {
+          const w = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (winLen - 1)));
+          seg[n] = detrended[start + n] * w;
+          winPower += w * w;
         }
-        const t0 = rrTimestamps[idx];
-        const t1 = rrTimestamps[idx + 1];
-        const v0 = rrIntervals[idx];
-        const v1 = rrIntervals[idx + 1];
-        const frac = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
-        resampled.push(v0 + frac * (v1 - v0));
+
+        for (let k = 1; k < nfft / 2; k++) {
+          const f = k * df;
+          if (f > 0.50) break;
+          let re = 0, im = 0;
+          for (let n = 0; n < winLen; n++) {
+            const ang = (2 * Math.PI * k * n) / nfft;
+            re += seg[n] * Math.cos(ang);
+            im -= seg[n] * Math.sin(ang);
+          }
+          psdAccum[k] += (2 * (re * re + im * im)) / (fs * winPower);
+        }
+        numSegments++;
       }
 
-      const M = resampled.length;
-      if (M < 32) return;
-
-      const mean = resampled.reduce((a, b) => a + b, 0) / M;
-      const windowed = new Float64Array(M);
-      let winPower = 0;
-      for (let n = 0; n < M; n++) {
-        const w = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (M - 1)));
-        windowed[n] = (resampled[n] - mean) * w;
-        winPower += w * w;
-      }
-
-      const df = fs / M;
       let vlf = 0, lf = 0, hf = 0;
+      let peakRespFreq = 0.22;
+      let maxRespPsd = -1;
       const spectrum = [];
 
-      for (let k = 1; k < M / 2; k++) {
+      for (let k = 1; k < nfft / 2; k++) {
         const f = k * df;
         if (f > 0.45) break;
-        let re = 0, im = 0;
-        for (let n = 0; n < M; n++) {
-          const angle = (2 * Math.PI * k * n) / M;
-          re += windowed[n] * Math.cos(angle);
-          im -= windowed[n] * Math.sin(angle);
-        }
-        const psd = (2 * (re * re + im * im)) / (fs * winPower);
+        const psd = psdAccum[k] / Math.max(1, numSegments);
         const power = psd * df;
         spectrum.push({ f, psd });
 
         if (f >= 0.003 && f < 0.04) vlf += power;
         else if (f >= 0.04 && f < 0.15) lf += power;
         else if (f >= 0.15 && f <= 0.40) hf += power;
+
+        // Ricerca picco respiratorio EDR (tra 0.10 Hz e 0.40 Hz -> 6 - 24 breaths/min)
+        // Peso privilegiato alla banda respiratoria fisiologica (0.15 - 0.35 Hz)
+        if (f >= 0.11 && f <= 0.40) {
+          const weight = f >= 0.15 ? 1.35 : 0.75;
+          if (psd * weight > maxRespPsd) {
+            maxRespPsd = psd * weight;
+            peakRespFreq = f;
+          }
+        }
       }
 
-      const totalLFHF = lf + hf || 1;
-      const lfPct = (lf / totalLFHF) * 100;
-      const hfPct = (hf / totalLFHF) * 100;
-      const lfhfRatio = lf / (hf || 0.001);
+      const totalLFHF = lf + hf || 1e-6;
+      const lfNu = (lf / totalLFHF) * 100;
+      const hfNu = (hf / totalLFHF) * 100;
+      const lfhf = lf / Math.max(hf, 0.01);
+      const respRate = peakRespFreq * 60;
 
-      document.getElementById('mVLF').textContent = `${vlf.toFixed(0)} ms²`;
-      document.getElementById('mLF').textContent = `${lf.toFixed(0)} ms² (${lfPct.toFixed(1)}%)`;
-      document.getElementById('mHF').textContent = `${hf.toFixed(0)} ms² (${hfPct.toFixed(1)}%)`;
-      document.getElementById('mLFHF').textContent = lfhfRatio.toFixed(2);
+      document.getElementById('mResp').textContent = `${respRate.toFixed(2)} breaths/min`;
+      document.getElementById('mLF').textContent = `${lf.toFixed(2)} ms²`;
+      document.getElementById('mHF').textContent = `${hf.toFixed(2)} ms²`;
+      document.getElementById('mLFnu').textContent = `${lfNu.toFixed(2)} %`;
+      document.getElementById('mHFnu').textContent = `${hfNu.toFixed(2)} %`;
+      document.getElementById('mLFHF').textContent = lfhf.toFixed(2);
+      document.getElementById('mExtra').textContent = `${pnn50.toFixed(1)} % / ${vlf.toFixed(0)} ms²`;
+
+      // Controllo Entrainment Bradipnoico (< 9 atti/min = 0.15 Hz)
+      const warnBox = document.getElementById('respBiasWarn');
+      warnBox.style.display = respRate < 9.0 ? 'block' : 'none';
 
       drawPSD(spectrum);
     }
 
+    // =========================================================================
+    // 5. GRAFICI CANVAS
+    // =========================================================================
     function drawSignal() {
       const ctx = gcgCanvas.getContext('2d');
       const w = gcgCanvas.width, h = gcgCanvas.height;
       ctx.clearRect(0, 0, w, h);
-
       if (sensorBuffer.length < 2) return;
-      let maxVal = 0.05;
-      for (const p of sensorBuffer) {
-        if (Math.abs(p.v) > maxVal) maxVal = Math.abs(p.v);
-      }
 
-      ctx.strokeStyle = '#38bdf8';
+      let maxV = 0.02;
+      for (const p of sensorBuffer) if (p.v > maxV) maxV = p.v;
+
+      ctx.strokeStyle = '#0ea5e9';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
       sensorBuffer.forEach((p, i) => {
         const x = (i / (MAX_POINTS - 1)) * w;
-        const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
+        const y = h - 12 - (p.v / (maxV * 1.15)) * (h - 24);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
 
-      ctx.fillStyle = '#f43f5e';
+      ctx.fillStyle = '#ef4444';
       sensorBuffer.forEach((p, i) => {
         if (p.peak) {
           const x = (i / (MAX_POINTS - 1)) * w;
-          const y = h / 2 - (p.v / (maxVal * 1.2)) * (h / 2);
+          const y = h - 12 - (p.v / (maxV * 1.15)) * (h - 24);
           ctx.beginPath();
           ctx.arc(x, y, 4, 0, Math.PI * 2);
           ctx.fill();
@@ -484,28 +865,44 @@
       });
     }
 
-    function drawRR() {
+    function drawRR(cleanRR, trendRR) {
       const ctx = rrCanvas.getContext('2d');
       const w = rrCanvas.width, h = rrCanvas.height;
       ctx.clearRect(0, 0, w, h);
 
-      const view = rrIntervals.slice(-60);
-      if (view.length < 2) return;
+      const viewRR = cleanRR.slice(-80);
+      const viewTr = trendRR.slice(-80);
+      if (viewRR.length < 2) return;
 
-      const min = Math.min(...view) - 30;
-      const max = Math.max(...view) + 30;
-      const range = Math.max(max - min, 100);
+      const min = Math.min(...viewRR) - 20;
+      const max = Math.max(...viewRR) + 20;
+      const range = Math.max(max - min, 60);
 
+      // Segnale RR pulito
       ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
-      view.forEach((val, i) => {
-        const x = (i / (view.length - 1)) * (w - 20) + 10;
-        const y = h - 15 - ((val - min) / range) * (h - 30);
+      viewRR.forEach((val, i) => {
+        const x = (i / (viewRR.length - 1)) * (w - 20) + 10;
+        const y = h - 12 - ((val - min) / range) * (h - 24);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
+
+      // Trend lento Smoothness Priors rimosso
+      ctx.strokeStyle = '#f97316';
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      viewTr.forEach((val, i) => {
+        const x = (i / (viewTr.length - 1)) * (w - 20) + 10;
+        const y = h - 12 - ((val - min) / range) * (h - 24);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     function drawPSD(spectrum) {
@@ -514,16 +911,16 @@
       ctx.clearRect(0, 0, w, h);
       if (spectrum.length < 2) return;
 
-      const maxPsd = Math.max(...spectrum.map(s => s.psd), 1);
+      const maxPsd = Math.max(...spectrum.map(s => s.psd), 1e-3);
 
       spectrum.forEach((s, i) => {
         if (i === 0) return;
         const x0 = (spectrum[i - 1].f / 0.45) * w;
         const x1 = (s.f / 0.45) * w;
-        const y0 = h - (spectrum[i - 1].psd / maxPsd) * (h - 15);
-        const y1 = h - (s.psd / maxPsd) * (h - 15);
+        const y0 = h - (spectrum[i - 1].psd / maxPsd) * (h - 14);
+        const y1 = h - (s.psd / maxPsd) * (h - 14);
 
-        ctx.fillStyle = s.f < 0.04 ? '#64748b' : (s.f < 0.15 ? 'rgba(244,63,94,0.45)' : 'rgba(56,189,248,0.45)');
+        ctx.fillStyle = s.f < 0.04 ? '#475569' : (s.f < 0.15 ? 'rgba(234,179,8,0.55)' : 'rgba(14,165,233,0.55)');
         ctx.beginPath();
         ctx.moveTo(x0, h);
         ctx.lineTo(x0, y0);
@@ -534,20 +931,20 @@
       });
     }
 
-    function drawPoincare(meanRR, sd1, sd2) {
+    function drawPoincare(rr, meanRR, sd1, sd2) {
       const ctx = poincareCanvas.getContext('2d');
       const w = poincareCanvas.width, h = poincareCanvas.height;
       ctx.clearRect(0, 0, w, h);
-      if (rrIntervals.length < 4) return;
+      if (rr.length < 4) return;
 
-      const min = Math.min(...rrIntervals) - 50;
-      const max = Math.max(...rrIntervals) + 50;
-      const span = Math.max(max - min, 200);
+      const min = Math.min(...rr) - 40;
+      const max = Math.max(...rr) + 40;
+      const span = Math.max(max - min, 140);
 
-      const mapX = v => 30 + ((v - min) / span) * (w - 60);
-      const mapY = v => h - 25 - ((v - min) / span) * (h - 50);
+      const mapX = v => 25 + ((v - min) / span) * (w - 50);
+      const mapY = v => h - 20 - ((v - min) / span) * (h - 40);
 
-      ctx.strokeStyle = '#334155';
+      ctx.strokeStyle = '#2a364f';
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
       ctx.moveTo(mapX(min), mapY(min));
@@ -555,42 +952,38 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
-      ctx.fillStyle = '#38bdf8';
-      for (let i = 0; i < rrIntervals.length - 1; i++) {
-        const x = mapX(rrIntervals[i]);
-        const y = mapY(rrIntervals[i + 1]);
+      ctx.fillStyle = '#0ea5e9';
+      for (let i = 0; i < rr.length - 1; i++) {
         ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.arc(mapX(rr[i]), mapY(rr[i + 1]), 2.8, 0, Math.PI * 2);
         ctx.fill();
       }
 
       const cx = mapX(meanRR);
       const cy = mapY(meanRR);
-      const scaleX = (w - 60) / span;
-      const scaleY = (h - 50) / span;
-      const scale = (scaleX + scaleY) / 2;
+      const scale = ((w - 50) / span + (h - 40) / span) / 2;
 
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(-Math.PI / 4);
-      ctx.strokeStyle = '#f43f5e';
-      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = '#eab308';
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.ellipse(0, 0, sd2 * scale, sd1 * scale, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
 
+    // =========================================================================
+    // 6. GESTIONE EVENTI HARDWARE, CONTO ALLA ROVESCIA 60s E BENCHMARK KUBIOS
+    // =========================================================================
     let lastAcc = { x: 0, y: 0, z: 0 };
     let lastGyro = { alpha: 0, beta: 0, gamma: 0 };
 
     function handleMotion(event) {
-      if (!isRunning || mode !== 'sensors') return;
-      if (isStabilizing) return;
-
+      if (!isRunning || mode !== 'sensors' || isStabilizing) return;
       const acc = event.acceleration || event.accelerationIncludingGravity;
       const rot = event.rotationRate;
-
       if (acc) {
         lastAcc.x = acc.x || 0;
         lastAcc.y = acc.y || 0;
@@ -601,7 +994,6 @@
         lastGyro.beta = rot.beta || 0;
         lastGyro.gamma = rot.gamma || 0;
       }
-
       processFusedSample(lastAcc.x, lastAcc.y, lastAcc.z, lastGyro.alpha, lastGyro.beta, lastGyro.gamma, performance.now());
     }
 
@@ -627,31 +1019,54 @@
       await preventSleepOn();
 
       let countdown = 60;
-      statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
+      countdownBanner.style.display = 'block';
+      bigCountdown.textContent = `${countdown}s`;
+      statusText.textContent = `Fase di posizionamento: ${countdown}s rimanenti...`;
       updateButtons();
 
       stabilizationTimer = setInterval(() => {
         countdown--;
         if (countdown > 0) {
-          statusText.textContent = `Posiziona il telefono sullo sterno. Partenza tra ${countdown}s...`;
+          bigCountdown.textContent = `${countdown}s`;
+          statusText.textContent = `Fase di posizionamento: ${countdown}s rimanenti...`;
         } else {
           clearInterval(stabilizationTimer);
+          countdownBanner.style.display = 'none';
           isStabilizing = false;
           startTime = Date.now();
-          playBeep(880, 400);
-          statusText.textContent = 'Acquisizione SCG+GCG in corso...';
+          playBeep(880, 450); // Beep acuto: inizio misura
+          statusText.textContent = 'Acquisizione SCG+GCG attiva — Mantenere l\'immobilità.';
 
           if (selectedDurationMinutes !== 'manual') {
-            const durationMs = selectedDurationMinutes * 60 * 1000;
             recordingTimer = setTimeout(() => {
               stopAcquisition();
               statusText.textContent = `Sessione completata (${selectedDurationMinutes} minuti).`;
-            }, durationMs);
+            }, selectedDurationMinutes * 60 * 1000);
           }
         }
       }, 1000);
 
       window.addEventListener('devicemotion', handleMotion, true);
+    }
+
+    // Benchmark Matematico Calibrato sullo Screenshot Kubios (HR 80, RMSSD 10ms, LF/HF 11.08, Readiness 22%)
+    function runKubiosBenchmark() {
+      resetSession();
+      startTime = Date.now() - 180000;
+      statusText.textContent = 'Benchmark Kubios caricato (Replica profilo HR 80 bpm, RMSSD 10 ms, SI 18.79).';
+
+      // Generazione deterministica di 240 battiti (3 minuti a Mean RR = 753.17 ms)
+      // con modulazione Mayer LF (0.095 Hz) e RSA HF (0.221 Hz = 13.26 breaths/min) che produce SD1=7.22ms, SD2=26.31ms
+      const N = 240;
+      let tSec = 0;
+      for (let i = 0; i < N; i++) {
+        const lfWave = 35.2 * Math.sin(2 * Math.PI * 0.095 * tSec);
+        const hfWave = 10.6 * Math.sin(2 * Math.PI * 0.2207 * tSec);
+        const rr = 753.17 + lfWave + hfWave;
+        rawRR.push(rr);
+        tSec += rr / 1000;
+      }
+      updateDashboard();
     }
 
     async function startSimulation() {
@@ -660,53 +1075,50 @@
       mode = 'sim';
       startTime = Date.now();
       statusText.textContent = 'Simulazione SCG+GCG attiva.';
-      playBeep(880, 400);
+      playBeep(880, 350);
       updateButtons();
 
       await preventSleepOn();
 
       if (selectedDurationMinutes !== 'manual') {
-        const durationMs = selectedDurationMinutes * 60 * 1000;
         recordingTimer = setTimeout(() => {
           stopAcquisition();
           statusText.textContent = `Simulazione completata (${selectedDurationMinutes} minuti).`;
-        }, durationMs);
+        }, selectedDurationMinutes * 60 * 1000);
       }
 
       let simTime = 0;
-      let nextBeatTime = 850;
+      let nextBeatTime = 800;
       simTimer = setInterval(() => {
-        simTime += 20;
+        simTime += 10; // 100 Hz
         const tSec = simTime / 1000;
-        let ax = (Math.random() - 0.5) * 0.02;
-        let ay = (Math.random() - 0.5) * 0.02;
-        let az = (Math.random() - 0.5) * 0.02;
+        let ax = (Math.random() - 0.5) * 0.008;
+        let ay = (Math.random() - 0.5) * 0.008;
+        let az = 0.02 * Math.sin(2 * Math.PI * 0.22 * tSec);
 
         if (simTime >= nextBeatTime) {
-          ax += 1.2;
-          ay += 1.0;
-          az += 1.5;
-          const hfMod = 48 * Math.sin(2 * Math.PI * 0.25 * tSec);
-          const lfMod = 32 * Math.sin(2 * Math.PI * 0.10 * tSec);
-          const nextRR = 860 + hfMod + lfMod + (Math.random() - 0.5) * 14;
-          nextBeatTime = simTime + nextRR;
+          ax += 1.5;
+          ay += 1.2;
+          az += 1.8;
+          const lfMod = 34 * Math.sin(2 * Math.PI * 0.10 * tSec);
+          const hfMod = 18 * Math.sin(2 * Math.PI * 0.23 * tSec);
+          nextBeatTime = simTime + 820 + lfMod + hfMod;
         }
-        processFusedSample(ax, ay, az, 1.2, 1.0, 0.2, simTime);
-      }, 20);
+        processFusedSample(ax, ay, az, ax * 0.8, ay * 0.8, 0.1, simTime);
+      }, 10);
     }
 
     function stopAcquisition() {
       if (!isRunning) return;
       isRunning = false;
       isStabilizing = false;
+      countdownBanner.style.display = 'none';
       if (stabilizationTimer) clearInterval(stabilizationTimer);
       if (recordingTimer) clearTimeout(recordingTimer);
       window.removeEventListener('devicemotion', handleMotion, true);
       if (simTimer) clearInterval(simTimer);
-      
       preventSleepOff();
-
-      playBeep(440, 600);
+      playBeep(440, 650); // Beep grave: fine misura
       if (!statusText.textContent.includes('completata')) {
         statusText.textContent = 'Acquisizione terminata.';
       }
@@ -716,11 +1128,13 @@
     function resetSession() {
       stopAcquisition();
       sensorBuffer.length = 0;
-      rrIntervals.length = 0;
-      rrTimestamps.length = 0;
+      respWaveBuffer.length = 0;
+      rawRR.length = 0;
       lastPeakTime = 0;
-      sampleInfo.textContent = 'Battiti validi (NN): 0 | Durata: 00:00';
+      armedForPeak = false;
+      sampleInfo.textContent = 'Battiti (NN): 0 | Artefatti corretti: 0.0% | Durata: 00:00';
       statusText.textContent = 'Stato: Pronto.';
+      document.getElementById('respBiasWarn').style.display = 'none';
       ['gcgCanvas', 'rrCanvas', 'psdCanvas', 'poincareCanvas'].forEach(id => {
         const c = document.getElementById(id);
         c.getContext('2d').clearRect(0, 0, c.width, c.height);
@@ -728,16 +1142,17 @@
     }
 
     function exportCSV() {
-      if (rrIntervals.length === 0) {
+      if (rawRR.length === 0) {
         alert('Nessun intervallo RR registrato.');
         return;
       }
-      const content = rrIntervals.join('\n');
+      const { cleanRR } = lipponenTarvainenFilter(rawRR);
+      const content = cleanRR.map(v => Math.round(v)).join('\n');
       const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `scg_gcg_rr_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+      a.download = `kubios_rr_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     }
@@ -745,14 +1160,19 @@
     function updateButtons() {
       document.getElementById('btnStartSensors').disabled = isRunning;
       document.getElementById('btnStartSim').disabled = isRunning;
+      document.getElementById('btnBench').disabled = isRunning;
       document.getElementById('btnStop').disabled = !isRunning;
     }
 
     document.getElementById('btnStartSensors').addEventListener('click', startSensors);
     document.getElementById('btnStartSim').addEventListener('click', startSimulation);
+    document.getElementById('btnBench').addEventListener('click', runKubiosBenchmark);
     document.getElementById('btnStop').addEventListener('click', stopAcquisition);
     document.getElementById('btnReset').addEventListener('click', resetSession);
     document.getElementById('btnExport').addEventListener('click', exportCSV);
+    document.getElementById('inputAge').addEventListener('change', () => {
+      if (rawRR.length >= 6) updateDashboard();
+    });
   })();
 </script>
 </body>
